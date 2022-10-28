@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP8266 - Mode AP</title>
+  <link href="./index.css" rel="stylesheet">
+  <style>
+    html {
+      color: rgb(51 65 85);
+      font-family: 'sans-serif', Arial, Helvetica;
+      user-select: none;
+    }
+
+    .title {
+      text-align: center;
+      font-size: 20px;
+      margin-bottom: 25px;
+    }
+
+    .viewer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      right: 0;
+      background-color: rgb(241, 245, 249);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 0 2rem;
+      flex-direction: column;
+    }
+
+    .container {
+      padding: 2rem;
+      background-color: #fff;
+      border-radius: 1rem;
+      box-shadow: rgba(149, 157, 165, 0.2) 0px 8px 24px;
+      max-width: 380px;
+      width: 100%;
+      box-sizing: border-box;
+      position: relative;
+      transition: filter 200ms ease-in-out;
+    }
+
+    .form {
+      display: grid;
+      grid-template-rows: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+    }
+
+    .form-fill {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      align-items: center;
+    }
+
+    .form-fill-label {
+      font-weight: bold;
+      font-size: 14px;
+    }
+
+    .form-fill-input {
+      grid-column: span 2 / span 2;
+      padding: 12px 16px;
+      outline: none;
+      border-radius: 1rem;
+      border: none;
+      background-color: rgb(241, 245, 249);
+    }
+
+    .form-fill-input:focus {
+      box-shadow: rgba(0, 0, 0, 0.02) 0px 1px 3px 0px, rgba(27, 31, 35, 0.15) 0px 0px 0px 1px;
+    }
+
+    .wrap-btn {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 1rem;
+    }
+
+    .btn-config {
+      padding: 10px 14px;
+      border-radius: 14px;
+      outline: none;
+      border: none;
+      font-weight: bold;
+      background-color: rgb(241, 245, 249);
+      cursor: pointer;
+      transition: box-shadow 100ms ease;
+    }
+
+    .btn-config:active {
+      box-shadow: rgba(0, 0, 0, 0.02) 0px 1px 3px 0px, rgba(27, 31, 35, 0.15) 0px 0px 0px 1px;
+    }
+
+    .container-space {
+      margin-top: 1rem;
+    }
+
+    .copyright {
+      text-align: center;
+      font-weight: bold;
+      font-size: 14px;
+    }
+
+    .state-config.active {
+      z-index: 999;
+      opacity: 1;
+    }
+
+    .state-config {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #fff;
+      border-radius: 1rem;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: -1;
+      opacity: 0;
+      transition: opacity 200ms ease-in;
+    }
+
+    .state-config .state {
+      padding: 16px;
+      width: fit-content;
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      fill: #fff;
+    }
+
+    .state-config>div {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .state-config-sucess .wrap .state {
+      background-color: rgb(74, 222, 128);
+    }
+
+    .state-config-error .wrap .state {
+      background-color: rgb(222, 74, 74);
+    }
+
+    .state-config .message {
+      margin-top: 2rem;
+      text-align: center;
+      font-size: 1rem;
+      padding: 0 2rem;
+    }
+
+    .disable {
+      filter: blur(3px);
+      pointer-events: none;
+      overflow: hidden;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="viewer">
+    <div class="container disable">
+      <h2 class="title">Cấu hình kết nối WIFI</h2>
+      <div class="form">
+        <div class="form-fill">
+          <label class="form-fill-label" for="ssid">Tên</label>
+          <input class="form-fill-input" placeholder="ví dụ: miru" type="text" name="ssid" id="ssid">
+        </div>
+        <div class="form-fill">
+          <label class="form-fill-label" for="password">Mật khẩu</label>
+          <input class="form-fill-input" placeholder="-- mật khẩu sẽ bị ẩn --" type="password" name="password"
+            id="password">
+        </div>
+      </div>
+      <div class="wrap-btn">
+        <button class="btn-config">Cấu
+          hình</button>
+      </div>
+      <!-- THIS STATE SUCCESS -->
+      <div class="state-config state-config-sucess">
+        <div class="wrap">
+          <div class="state">
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" id="Capa_1"
+              x="0px" y="0px" viewBox="0 0 507.506 507.506" style="enable-background:new 0 0 507.506 507.506;"
+              xml:space="preserve" width="40" height="40">
+              <g>
+                <path
+                  d="M163.865,436.934c-14.406,0.006-28.222-5.72-38.4-15.915L9.369,304.966c-12.492-12.496-12.492-32.752,0-45.248l0,0   c12.496-12.492,32.752-12.492,45.248,0l109.248,109.248L452.889,79.942c12.496-12.492,32.752-12.492,45.248,0l0,0   c12.492,12.496,12.492,32.752,0,45.248L202.265,421.019C192.087,431.214,178.271,436.94,163.865,436.934z" />
+              </g>
+            </svg>
+          </div>
+          <h3 class="message">Bạn đã cấu hình kết nối tới wifi
+            <br>
+            <span>[ miru ]</span>
+            <br>
+            thành công
+          </h3>
+        </div>
+      </div>
+      <!-- THIS STATE ERROR -->
+      <div class="state-config state-config-error">
+        <div class="wrap">
+          <div class="state">
+            <svg xmlns="http://www.w3.org/2000/svg" id="Outline" viewBox="0 0 24 24" width="40" height="40">
+              <path
+                d="M12,0A12,12,0,1,0,24,12,12.013,12.013,0,0,0,12,0Zm0,22A10,10,0,1,1,22,12,10.011,10.011,0,0,1,12,22Z" />
+              <path d="M12,10H11a1,1,0,0,0,0,2h1v6a1,1,0,0,0,2,0V12A2,2,0,0,0,12,10Z" />
+              <circle cx="12" cy="6.5" r="1.5" />
+            </svg>
+          </div>
+          <h3 class="message">Có lỗi xảy ra khi cấu hình kết nối tới wifi<br>
+            <span>[ miru ]</span>
+          </h3>
+        </div>
+      </div>
+    </div>
+    <div class="container container-space">
+      <p class="copyright">Bản quyền của @miru ngày 29/10/2022</p>
+    </div>
+  </div>
+</body>
+
+</html>

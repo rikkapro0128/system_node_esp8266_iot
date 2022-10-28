@@ -1,0 +1,10 @@
+{
+  "scripts": {
+    "dev": "npx tailwindcss -i ./src/mode/ap/style.css -o ./src/mode/ap/index.css --watch",
+    "mini": "node src/mode/ap/minify.js"
+  },
+  "dependencies": {
+    "html-minifier": "^4.0.0",
+    "tailwindcss": "^3.2.1"
+  }
+}
