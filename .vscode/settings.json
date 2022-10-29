@@ -1,3 +1,33 @@
 {
-  "C_Cpp.errorSquiggles": "disabled"
+  "C_Cpp.errorSquiggles": "disabled",
+  "files.associations": {
+    "*.js": "javascriptreact",
+    "string": "cpp",
+    "istream": "cpp",
+    "new": "cpp",
+    "ostream": "cpp",
+    "functional": "cpp",
+    "typeinfo": "cpp",
+    "array": "cpp",
+    "atomic": "cpp",
+    "*.tcc": "cpp",
+    "concepts": "cpp",
+    "cstddef": "cpp",
+    "cstdio": "cpp",
+    "cstring": "cpp",
+    "cwchar": "cpp",
+    "vector": "cpp",
+    "memory": "cpp",
+    "memory_resource": "cpp",
+    "optional": "cpp",
+    "string_view": "cpp",
+    "tuple": "cpp",
+    "type_traits": "cpp",
+    "random": "cpp",
+    "initializer_list": "cpp",
+    "ranges": "cpp",
+    "stdexcept": "cpp",
+    "system_error": "cpp",
+    "utility": "cpp"
+  }
 }

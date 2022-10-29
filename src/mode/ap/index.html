@@ -6,7 +6,8 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ESP8266 - Mode AP</title>
-  <link href="./index.css" rel="stylesheet">
+  <link rel="shortcut icon"
+    href="data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9IjQ4MHB0IiB2aWV3Qm94PSIwIDAgNDgwIDQ4MCIgd2lkdGg9IjQ4MHB0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Im00MzIgMjQwYzAgMTA2LjAzOTA2Mi04NS45NjA5MzggMTkyLTE5MiAxOTJzLTE5Mi04NS45NjA5MzgtMTkyLTE5MiA4NS45NjA5MzgtMTkyIDE5Mi0xOTIgMTkyIDg1Ljk2MDkzOCAxOTIgMTkyem0wIDAiIGZpbGw9IiNjZmQyZmMiLz48cGF0aCBkPSJtMjQwIDQ4MGMtMTMyLjU0Njg3NSAwLTI0MC0xMDcuNDUzMTI1LTI0MC0yNDBzMTA3LjQ1MzEyNS0yNDAgMjQwLTI0MCAyNDAgMTA3LjQ1MzEyNSAyNDAgMjQwYy0uMTQ4NDM4IDEzMi40ODQzNzUtMTA3LjUxNTYyNSAyMzkuODUxNTYyLTI0MCAyNDB6bTAtNDY0Yy0xMjMuNzEwOTM4IDAtMjI0IDEwMC4yODkwNjItMjI0IDIyNHMxMDAuMjg5MDYyIDIyNCAyMjQgMjI0IDIyNC0xMDAuMjg5MDYyIDIyNC0yMjRjLS4xNDA2MjUtMTIzLjY1MjM0NC0xMDAuMzQ3NjU2LTIyMy44NTkzNzUtMjI0LTIyNHptMCAwIiBmaWxsPSIjODY5MGZhIi8+PHBhdGggZD0ibTM1MiAyNDBjMCA2MS44NTU0NjktNTAuMTQ0NTMxIDExMi0xMTIgMTEycy0xMTItNTAuMTQ0NTMxLTExMi0xMTIgNTAuMTQ0NTMxLTExMiAxMTItMTEyIDExMiA1MC4xNDQ1MzEgMTEyIDExMnptMCAwIiBmaWxsPSIjNTE1M2ZmIi8+PC9zdmc+" />
   <style>
     html {
       color: rgb(51 65 85);
@@ -82,7 +83,7 @@
       margin-top: 1rem;
     }
 
-    .btn-config {
+    .btn {
       padding: 10px 14px;
       border-radius: 14px;
       outline: none;
@@ -93,7 +94,7 @@
       transition: box-shadow 100ms ease;
     }
 
-    .btn-config:active {
+    .btn:active {
       box-shadow: rgba(0, 0, 0, 0.02) 0px 1px 3px 0px, rgba(27, 31, 35, 0.15) 0px 0px 0px 1px;
     }
 
@@ -152,6 +153,10 @@
       background-color: rgb(222, 74, 74);
     }
 
+    .state-config-info .wrap .state {
+      background-color: rgb(185, 222, 74);
+    }
+
     .state-config .message {
       margin-top: 2rem;
       text-align: center;
@@ -169,7 +174,8 @@
 
 <body>
   <div class="viewer">
-    <div class="container disable">
+    <!-- class controll: disable -->
+    <div class="container">
       <h2 class="title">Cấu hình kết nối WIFI</h2>
       <div class="form">
         <div class="form-fill">
@@ -183,7 +189,7 @@
         </div>
       </div>
       <div class="wrap-btn">
-        <button class="btn-config">Cấu
+        <button class="btn btn-config">Cấu
           hình</button>
       </div>
       <!-- THIS STATE SUCCESS -->
@@ -223,11 +229,78 @@
           </h3>
         </div>
       </div>
+      <!-- THIS STATE INFO -->
+      <div class="state-config state-config-info">
+        <div class="wrap">
+          <div class="state">
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" id="Capa_1"
+              x="0px" y="0px" viewBox="0 0 512 512" style="enable-background:new 0 0 512 512;" xml:space="preserve"
+              width="40" height="40">
+              <g>
+                <path
+                  d="M256,0C114.615,0,0,114.615,0,256s114.615,256,256,256s256-114.615,256-256C511.847,114.678,397.322,0.153,256,0z M256,448   c-106.039,0-192-85.961-192-192S149.961,64,256,64s192,85.961,192,192C447.882,361.99,361.99,447.882,256,448z" />
+                <path
+                  d="M256,321.941c17.673,0,32-14.327,32-32V140.608c0-17.673-14.327-32-32-32s-32,14.327-32,32v149.333   C224,307.614,238.327,321.941,256,321.941z" />
+                <circle cx="256.107" cy="373.333" r="32" />
+              </g>
+            </svg>
+          </div>
+          <h3 class="message">Bạn không được bỏ trống dữ liệu</h3>
+          <div class="wrap-btn">
+            <button class="btn btn-accept-error">Xác nhận</button>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="container container-space">
       <p class="copyright">Bản quyền của @miru ngày 29/10/2022</p>
     </div>
   </div>
 </body>
+
+<script>
+  const eleSSID = document.querySelector('.form-fill-input[name=ssid]');
+  const elePASSWORD = document.querySelector('.form-fill-input[name=password]');
+  const eleBtnConfig = document.querySelector('.btn-config');
+  const eleBtnAcceptInfo = document.querySelector('.btn-accept-error');
+  const eleConfigInfo = document.querySelector('.state-config-info');
+  const eleConfigError = document.querySelector('.state-config-error');
+  const eleConfigSuccess = document.querySelector('.state-config-sucess');
+
+  async function handleSendConfig(event) {
+    try {
+      if (eleSSID.value.length && elePASSWORD.value.length) {
+        const res = await fetch('/config', { method: 'POST', body: JSON.stringify({ ssid: eleSSID.value, password: elePASSWORD.value }), headers: { 'Content-Type': 'application/json' } });
+        const payload = await res.json();
+        if (payload.message === 'CONFIGURATION WIFI SUCCESSFULLY') {
+          eleConfigSuccess.classList.add('active');
+        }
+      } else {
+        eleConfigInfo.classList.add('active');
+      }
+    } catch (err) {
+      console.log(err);
+    }
+  }
+
+  function handleAcceptInfo() {
+    eleConfigInfo.classList.remove('active');
+  }
+
+  eleBtnConfig.addEventListener('click', handleSendConfig);
+
+  eleBtnAcceptInfo.addEventListener('click', handleAcceptInfo);
+
+  (async () => {
+    const res = await fetch('/isconfig');
+    const payload = await res.json();
+    if (payload.message === 'WIFI HAS BEEN CONFIG') {
+      eleConfigSuccess.classList.add('active');
+    } else if (payload.message === 'WIFI NOT YET CONFIG') {
+      eleConfigError.classList.add('active');
+    }
+  })()
+
+</script>
 
 </html>
