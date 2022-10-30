@@ -9,10 +9,44 @@
   <link rel="shortcut icon"
     href="data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9IjQ4MHB0IiB2aWV3Qm94PSIwIDAgNDgwIDQ4MCIgd2lkdGg9IjQ4MHB0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Im00MzIgMjQwYzAgMTA2LjAzOTA2Mi04NS45NjA5MzggMTkyLTE5MiAxOTJzLTE5Mi04NS45NjA5MzgtMTkyLTE5MiA4NS45NjA5MzgtMTkyIDE5Mi0xOTIgMTkyIDg1Ljk2MDkzOCAxOTIgMTkyem0wIDAiIGZpbGw9IiNjZmQyZmMiLz48cGF0aCBkPSJtMjQwIDQ4MGMtMTMyLjU0Njg3NSAwLTI0MC0xMDcuNDUzMTI1LTI0MC0yNDBzMTA3LjQ1MzEyNS0yNDAgMjQwLTI0MCAyNDAgMTA3LjQ1MzEyNSAyNDAgMjQwYy0uMTQ4NDM4IDEzMi40ODQzNzUtMTA3LjUxNTYyNSAyMzkuODUxNTYyLTI0MCAyNDB6bTAtNDY0Yy0xMjMuNzEwOTM4IDAtMjI0IDEwMC4yODkwNjItMjI0IDIyNHMxMDAuMjg5MDYyIDIyNCAyMjQgMjI0IDIyNC0xMDAuMjg5MDYyIDIyNC0yMjRjLS4xNDA2MjUtMTIzLjY1MjM0NC0xMDAuMzQ3NjU2LTIyMy44NTkzNzUtMjI0LTIyNHptMCAwIiBmaWxsPSIjODY5MGZhIi8+PHBhdGggZD0ibTM1MiAyNDBjMCA2MS44NTU0NjktNTAuMTQ0NTMxIDExMi0xMTIgMTEycy0xMTItNTAuMTQ0NTMxLTExMi0xMTIgNTAuMTQ0NTMxLTExMiAxMTItMTEyIDExMiA1MC4xNDQ1MzEgMTEyIDExMnptMCAwIiBmaWxsPSIjNTE1M2ZmIi8+PC9zdmc+" />
   <style>
+    .viewer {
+      transition: background 200ms ease-in-out;
+    }
+
     html {
-      color: rgb(51 65 85);
+      color: rgb(51, 65, 85);
       font-family: 'sans-serif', Arial, Helvetica;
       user-select: none;
+    }
+
+    .dark {
+      color: #16161A;
+    }
+
+    .dark button:active {
+      transform: scale(0.98);
+    }
+
+    .dark .state-config {
+      background-color: #16161A;
+    }
+
+    .dark .container {
+      color: #fffffe;
+      background-color: #16161A;
+      box-shadow: none;
+    }
+
+    .dark .viewer {
+      background-color: #242629;
+    }
+
+    .dark .form-fill-input {
+      background-color: #fffffe;
+    }
+
+    .dark .state-config {
+      background-color: #16161A;
     }
 
     .title {
@@ -33,6 +67,9 @@
       align-items: center;
       padding: 0 2rem;
       flex-direction: column;
+      margin-top: -1rem;
+      margin-bottom: -1rem;
+      transition: background 200ms ease-in-out;
     }
 
     .container {
@@ -44,7 +81,7 @@
       width: 100%;
       box-sizing: border-box;
       position: relative;
-      transition: filter 200ms ease-in-out;
+      transition: filter 200ms ease-in-out, background 200ms ease-in-out;
     }
 
     .form {
@@ -60,8 +97,8 @@
     }
 
     .form-fill-label {
+      font-size: 15px;
       font-weight: bold;
-      font-size: 14px;
     }
 
     .form-fill-input {
@@ -100,6 +137,7 @@
 
     .container-space {
       margin-top: 1rem;
+      margin-bottom: 1rem;
     }
 
     .copyright {
@@ -119,14 +157,14 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background-color: #fff;
+      background-color: white;
       border-radius: 1rem;
       display: flex;
       justify-content: center;
       align-items: center;
       z-index: -1;
       opacity: 0;
-      transition: opacity 200ms ease-in;
+      transition: opacity 200ms ease-in-out, background 200ms ease-in-out;
     }
 
     .state-config .state {
@@ -169,13 +207,75 @@
       pointer-events: none;
       overflow: hidden;
     }
+
+    .toggle {
+      width: 40px;
+      height: 0;
+      padding-top: 20px;
+      background-color: #D4D4D8;
+      border-radius: 50px;
+      position: relative;
+      transition: background-color 150ms ease-in-out;
+      cursor: pointer;
+    }
+
+    .toggle::before {
+      position: absolute;
+      content: '';
+      width: 22px;
+      height: 22px;
+      background-color: white;
+      border-radius: 50px;
+      top: 50%;
+      left: 0;
+      transition: transform 150ms ease-in-out, background-color 150ms ease-in-out;
+      transform: translate(-2px, -50%);
+      box-shadow: rgba(0, 0, 0, 0.02) 0px 1px 3px 0px, rgba(27, 31, 35, 0.15) 0px 0px 0px 1px;
+    }
+
+    .toggle.active {
+      background-color: #4F46E5;
+    }
+
+    .toggle.active::before {
+      transform: translate(20px, -50%);
+    }
+
+    .toggle--label {
+      margin: 0;
+      font-weight: bold;
+      margin-right: 1rem;
+    }
+
+    .wrap-toggle {
+      display: flex;
+      align-items: center;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+    }
   </style>
 </head>
 
 <body>
   <div class="viewer">
+    <!-- THIS HEADER -->
+    <header class="container container-space">
+      <!-- Toggle theme -->
+      <div class="wrap-toggle">
+        <p class="toggle--label">Đổi theme</p>
+        <div class="toggle toggle--theme"></div>
+      </div>
+      <!-- Reset configration -->
+      <div>
+        <button class="btn btn--reset-config">Reset cấu hình</button>
+      </div>
+    </header>
+    <!-- THIS MAIN CONTENT -->
     <!-- class controll: disable -->
-    <div class="container">
+    <main class="container">
       <h2 class="title">Cấu hình kết nối WIFI</h2>
       <div class="form">
         <div class="form-fill">
@@ -245,27 +345,33 @@
               </g>
             </svg>
           </div>
-          <h3 class="message">Bạn không được bỏ trống dữ liệu</h3>
+          <h3 class="message"></h3>
           <div class="wrap-btn">
             <button class="btn btn-accept-error">Xác nhận</button>
           </div>
         </div>
       </div>
-    </div>
-    <div class="container container-space">
+    </main>
+    <!-- THIS FOOTER -->
+    <footer class="container container-space">
       <p class="copyright">Bản quyền của @miru ngày 29/10/2022</p>
-    </div>
+    </footer>
   </div>
 </body>
 
 <script>
+
+  const tagTheme = 'miru-theme';
+
   const eleSSID = document.querySelector('.form-fill-input[name=ssid]');
   const elePASSWORD = document.querySelector('.form-fill-input[name=password]');
   const eleBtnConfig = document.querySelector('.btn-config');
+  const eleBtnResetConfig = document.querySelector('.btn--reset-config');
   const eleBtnAcceptInfo = document.querySelector('.btn-accept-error');
   const eleConfigInfo = document.querySelector('.state-config-info');
   const eleConfigError = document.querySelector('.state-config-error');
   const eleConfigSuccess = document.querySelector('.state-config-sucess');
+  const eleToggle = document.querySelectorAll('.toggle');
 
   async function handleSendConfig(event) {
     try {
@@ -276,7 +382,7 @@
           eleConfigSuccess.classList.add('active');
         }
       } else {
-        eleConfigInfo.classList.add('active');
+        alertInfo('[Thông tin]: Bạn không được bỏ trống dữ liệu');
       }
     } catch (err) {
       console.log(err);
@@ -287,19 +393,71 @@
     eleConfigInfo.classList.remove('active');
   }
 
-  eleBtnConfig.addEventListener('click', handleSendConfig);
+  function alertInfo(message = '') {
+    eleConfigInfo.querySelector('.message').innerHTML = message;
+    eleConfigInfo.classList.add('active');
+  }
 
-  eleBtnAcceptInfo.addEventListener('click', handleAcceptInfo);
+  function setTheme(type = 'light') {
+    document.body.parentNode.classList.remove('dark', 'light');
+    document.body.parentNode.classList.add(type);
+    localStorage.setItem(tagTheme, type);
+  }
 
-  (async () => {
-    const res = await fetch('/isconfig');
+  function hanldeToggle(event) {
+    const ele = event.target;
+    if (ele.className.includes('active')) {
+      ele.classList.remove('active');
+      setTheme('light');
+    } else {
+      ele.classList.add('active');
+      setTheme('dark');
+    }
+  }
+
+  async function handleResetConfig() {
+    try {
+      const res = await fetch('/reset-config', { method: 'POST' });
+      const payload = await res.json();
+      if (res.status >= 200 && res.status <= 300) {
+        if (payload.message === 'RESET CONFIG SUCCESSFULLY') {
+          alertInfo('[Thông tin]: Bạn đã reset cấu hình WIFI thành công');
+          eleConfigSuccess.classList.remove('active');
+        }
+      } else {
+        alertInfo('[Thông tin]: Bạn không có quyền cấu hình');
+      }
+    } catch (error) {
+      alertInfo('[Lỗi]: không thể reset cấu hình WIFI');
+    }
+  }
+
+  const initState = async () => {
+    const res = await fetch('/is-config');
     const payload = await res.json();
     if (payload.message === 'WIFI HAS BEEN CONFIG') {
       eleConfigSuccess.classList.add('active');
-    } else if (payload.message === 'WIFI NOT YET CONFIG') {
-      eleConfigError.classList.add('active');
     }
-  })()
+  }
+
+  eleBtnConfig.addEventListener('click', handleSendConfig);
+  eleBtnResetConfig.addEventListener('click', handleResetConfig);
+  eleBtnAcceptInfo.addEventListener('click', handleAcceptInfo);
+
+  eleToggle.forEach(toggle => {
+    if (toggle.className.includes('toggle--theme')) {
+      const getTheme = localStorage.getItem(tagTheme);
+      if (getTheme !== null && getTheme == 'dark') {
+        toggle.classList.add('active');
+        document.body.parentNode.classList.add('dark');
+      } else {
+        document.body.parentNode.classList.add('light');
+      }
+    }
+    toggle.addEventListener('click', hanldeToggle);
+  });
+
+  initState();
 
 </script>
 
