@@ -13,7 +13,7 @@ try {
     removeComments: true,
   });
   
-  fs.writeFile('./src/mode/ap/index.minify.html', result, err => {
+  fs.writeFile('./data/index.minify.html', result, err => {
     if (err) {
       console.error(err);
     }
