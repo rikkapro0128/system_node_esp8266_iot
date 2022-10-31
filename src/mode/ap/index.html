@@ -9,8 +9,12 @@
   <link rel="shortcut icon"
     href="data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9IjQ4MHB0IiB2aWV3Qm94PSIwIDAgNDgwIDQ4MCIgd2lkdGg9IjQ4MHB0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Im00MzIgMjQwYzAgMTA2LjAzOTA2Mi04NS45NjA5MzggMTkyLTE5MiAxOTJzLTE5Mi04NS45NjA5MzgtMTkyLTE5MiA4NS45NjA5MzgtMTkyIDE5Mi0xOTIgMTkyIDg1Ljk2MDkzOCAxOTIgMTkyem0wIDAiIGZpbGw9IiNjZmQyZmMiLz48cGF0aCBkPSJtMjQwIDQ4MGMtMTMyLjU0Njg3NSAwLTI0MC0xMDcuNDUzMTI1LTI0MC0yNDBzMTA3LjQ1MzEyNS0yNDAgMjQwLTI0MCAyNDAgMTA3LjQ1MzEyNSAyNDAgMjQwYy0uMTQ4NDM4IDEzMi40ODQzNzUtMTA3LjUxNTYyNSAyMzkuODUxNTYyLTI0MCAyNDB6bTAtNDY0Yy0xMjMuNzEwOTM4IDAtMjI0IDEwMC4yODkwNjItMjI0IDIyNHMxMDAuMjg5MDYyIDIyNCAyMjQgMjI0IDIyNC0xMDAuMjg5MDYyIDIyNC0yMjRjLS4xNDA2MjUtMTIzLjY1MjM0NC0xMDAuMzQ3NjU2LTIyMy44NTkzNzUtMjI0LTIyNHptMCAwIiBmaWxsPSIjODY5MGZhIi8+PHBhdGggZD0ibTM1MiAyNDBjMCA2MS44NTU0NjktNTAuMTQ0NTMxIDExMi0xMTIgMTEycy0xMTItNTAuMTQ0NTMxLTExMi0xMTIgNTAuMTQ0NTMxLTExMiAxMTItMTEyIDExMiA1MC4xNDQ1MzEgMTEyIDExMnptMCAwIiBmaWxsPSIjNTE1M2ZmIi8+PC9zdmc+" />
   <style>
-    .viewer {
-      transition: background 200ms ease-in-out;
+    * {
+      transition: background 200ms ease-in-out, color 200ms ease-in-out, opacity 200ms ease-in-out, transform 200ms ease-in-out;
+    }
+
+    svg {
+      transition: fill 200ms ease-in-out;
     }
 
     html {
@@ -23,11 +27,28 @@
       color: #16161A;
     }
 
+    .dark .wrap-loading .cut {
+      background-color: #16161A;
+    }
+
+    .dark .network:hover {
+      background-color: #7068ff;
+    }
+
+    .dark .network {
+      background-color: #7068ff;
+    }
+
+    .dark .network svg {
+      fill: white;
+    }
+
     .dark button:active {
       transform: scale(0.98);
     }
 
     .dark .state-config {
+      color: #fffffe;
       background-color: #16161A;
     }
 
@@ -39,6 +60,10 @@
 
     .dark .viewer {
       background-color: #242629;
+    }
+
+    .dark .wrap-main {
+      background-color: #16161A;
     }
 
     .dark .form-fill-input {
@@ -69,7 +94,6 @@
       flex-direction: column;
       margin-top: -1rem;
       margin-bottom: -1rem;
-      transition: background 200ms ease-in-out;
     }
 
     .container {
@@ -81,7 +105,6 @@
       width: 380px;
       box-sizing: border-box;
       position: relative;
-      transition: filter 200ms ease-in-out, background 200ms ease-in-out, height 200ms linear;
     }
 
     .form {
@@ -128,7 +151,7 @@
       font-weight: bold;
       background-color: rgb(241, 245, 249);
       cursor: pointer;
-      transition: box-shadow 100ms ease;
+      color: #16161a;
     }
 
     .btn:active {
@@ -164,7 +187,7 @@
       align-items: center;
       z-index: -1;
       opacity: 0;
-      transition: opacity 200ms ease-in-out, background 200ms ease-in-out;
+
     }
 
     .state-config .state {
@@ -213,7 +236,6 @@
       background-color: #D4D4D8;
       border-radius: 50px;
       position: relative;
-      transition: background-color 150ms ease-in-out;
       cursor: pointer;
     }
 
@@ -226,8 +248,8 @@
       border-radius: 50px;
       top: 50%;
       left: 0;
-      transition: transform 150ms ease-in-out, background-color 150ms ease-in-out;
       transform: translate(-2px, -50%);
+      transition: transform 200ms ease-in-out;
       box-shadow: rgba(0, 0, 0, 0.02) 0px 1px 3px 0px, rgba(27, 31, 35, 0.15) 0px 0px 0px 1px;
     }
 
@@ -293,7 +315,6 @@
       font-size: 1rem;
       text-align: left;
       margin: 0;
-      margin-bottom: 1.5rem;
     }
 
     .network {
@@ -302,7 +323,6 @@
       padding: 15px;
       border-radius: 6px;
       background-color: rgb(241, 245, 249);
-      transition: background 150ms ease-in-out;
       cursor: pointer;
       margin: 10px 0;
     }
@@ -319,6 +339,7 @@
       max-width: 150px;
       text-overflow: ellipsis;
       white-space: nowrap;
+      overflow: hidden;
     }
 
     .network .quality {
@@ -406,6 +427,13 @@
         transform: rotate(360deg);
       }
     }
+
+    .networks--header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
   </style>
 </head>
 
@@ -427,7 +455,10 @@
     <!-- class controll: disable cancel -->
     <main class="wrap-main">
       <main class="container area-networks">
-        <h3 class="title">Mạng xung quanh</h3>
+        <div class="networks--header">
+          <h3 class="title">Mạng xung quanh</h3>
+          <button class="btn-renew btn">làm mới</button>
+        </div>
         <div class="wrap-networks"></div>
       </main>
       <main class="container area-config">
@@ -463,6 +494,9 @@
           <h3 class="message">Có lỗi xảy ra khi cấu hình kết nối tới wifi<br>
             <span>[ miru ]</span>
           </h3>
+          <div class="wrap-btn">
+            <button class="btn btn-accept-error">Xác nhận</button>
+          </div>
         </div>
       </div>
       <!-- THIS STATE SUCCESS -->
@@ -527,7 +561,7 @@
           </div>
           <h3 class="message"></h3>
           <div class="wrap-btn">
-            <button class="btn btn-accept-error">Xác nhận</button>
+            <button class="btn btn-accept-info">Xác nhận</button>
           </div>
         </div>
       </div>
@@ -546,9 +580,11 @@
   const eleSSID = document.querySelector('.form-fill-input[name=ssid]');
   const elePASSWORD = document.querySelector('.form-fill-input[name=password]');
   const eleBtnConfig = document.querySelector('.btn-config');
+  const eleBtnRenewNetwork = document.querySelector('.btn-renew');
   const eleBtnBack = document.querySelector('.btn-back');
   const eleBtnResetConfig = document.querySelector('.btn--reset-config');
-  const eleBtnAcceptInfo = document.querySelector('.btn-accept-error');
+  const eleBtnAcceptInfo = document.querySelector('.btn-accept-info');
+  const eleBtnAcceptError = document.querySelector('.btn-accept-error');
   const eleConfigInfo = document.querySelector('.state-config-info');
   const eleConfigError = document.querySelector('.state-config-error');
   const eleConfigConfirm = document.querySelector('.state-config-confirm');
@@ -584,20 +620,26 @@ height="20">
     eleWrapMain.scrollTo({ behavior: 'smooth', left: 0 });
   }
 
+  async function handleRenewNetwork() {
+    await scanNetworks();
+  }
+
   async function handleSendConfig(event) {
     try {
-      eleWrapMain.scrollTo({ behavior: 'smooth', left: 0 });
+      handleBack();
       if (eleSSID.value.length && elePASSWORD.value.length) {
         const res = await fetch('/config', { method: 'POST', body: JSON.stringify({ ssid: eleSSID.value, password: elePASSWORD.value }), headers: { 'Content-Type': 'application/json' } });
         const payload = await res.json();
         if (payload.message === 'CONFIGURATION WIFI SUCCESSFULLY') {
+          eleConfigSuccess.querySelector('.message span').innerHTML = `"${eleSSID.value}"`;
           eleConfigSuccess.classList.add('active');
+          eleSSID.value = '';
         }
       } else {
         alertInfo('[Thông tin]: Bạn không được bỏ trống dữ liệu');
       }
-    } catch (err) {
-      console.log(err);
+    } catch (error) {
+      activeErrorMessage('[có lỗi]: Không thể cấu hình WIFI');
     }
   }
 
@@ -613,14 +655,15 @@ height="20">
       const payload = await res.json();
       if (res.status >= 200 && res.status <= 300) {
         if (payload.message === 'RESET CONFIG SUCCESSFULLY') {
-          alertInfo('[Thông tin]: Bạn đã reset cấu hình WIFI thành công');
+          handleBack();
           eleConfigSuccess.classList.remove('active');
+          alertInfo('[Thông tin]: Bạn đã reset cấu hình WIFI thành công');
         }
       } else {
         alertInfo('[Thông tin]: Bạn không có quyền cấu hình');
       }
     } catch (error) {
-      alertInfo('[Lỗi]: không thể reset cấu hình WIFI');
+      activeErrorMessage('[có lỗi]: Không thể reset cấu hình WIFI');
     }
   }
 
@@ -628,8 +671,13 @@ height="20">
     eleConfigConfirm.classList.remove('active');
   }
 
-  function handleAcceptInfo() {
+  async function handleAcceptInfo() {
     eleConfigInfo.classList.remove('active');
+    await scanNetworks();
+  }
+
+  async function handleAcceptError() {
+    eleConfigError.classList.remove('active');
   }
 
   function alertInfo(message = '') {
@@ -674,10 +722,29 @@ height="20">
       activeScanNetwork();
       const res = await fetch('/scan-network');
       const payload = await res.json();
-      return payload?.networks ? payload.networks : null;
+      disableScanNetwork();
+      if (payload?.networks) {
+        let networks = payload.networks.map(val => ({ ...val, quality: Math.min(Math.max(2 * (val.quality + 100), 0), 100) })).sort((a, b) => b.quality - a.quality);
+        networks.forEach(network => {
+          eleWrapNetwork.innerHTML += `
+          <div data-name="${network.name}" data-quality="${network.quality}" class="network">
+            ${IconWifi}
+            <span class="name">${network.name}</span>
+            <span class="quality">${network.quality}%</span>
+            ${IconNext}
+          </div>
+          `;
+        })
+        eleWrapNetwork.querySelectorAll('.network').forEach(network => {
+          network.addEventListener('click', function () {
+            const name = this.getAttribute('data-name');
+            eleSSID.value = name;
+            eleWrapMain.scrollTo({ behavior: 'smooth', left: mainScrollEnd });
+          })
+        })
+      }
     } catch (error) {
-      console.log(error);
-      throw error;
+      activeErrorMessage('[có lỗi]: Quét mạng xung quanh không thành công.');
     }
   }
 
@@ -703,43 +770,25 @@ height="20">
       const res = await fetch('/is-config');
       const payload = await res.json();
       if (payload.message === 'WIFI HAS BEEN CONFIG') {
+        eleConfigSuccess.querySelector('.message span').innerHTML = `"${payload.ssid}"`;
         eleConfigSuccess.classList.add('active');
       } else {
-        let networks = await scanNetworks();
-        if (networks !== null) {
-          disableScanNetwork();
-          networks = networks.map(val => ({ ...val, quality: Math.min(Math.max(2 * (val.quality + 100), 0), 100) })).sort((a, b) => b.quality - a.quality);
-          networks.forEach(network => {
-            eleWrapNetwork.innerHTML += `
-            <div data-name="${network.name}" data-quality="${network.quality}" class="network">
-              ${IconWifi}
-              <span class="name">${network.name}</span>
-              <span class="quality">${network.quality}%</span>
-              ${IconNext}
-            </div>
-            `;
-          })
-          eleWrapNetwork.querySelectorAll('.network').forEach(network => {
-            network.addEventListener('click', function () {
-              const name = this.getAttribute('data-name');
-              eleSSID.value = name;
-              eleWrapMain.scrollTo({ behavior: 'smooth', left: mainScrollEnd });
-            })
-          })
-        }
+        await scanNetworks();
       }
     } catch (error) {
-      // activeErrorMessage('[Lỗi rồi]: Có lỗi xảy ra khi kiểm tra cấu hình.');
+      activeErrorMessage('[có lỗi]: Đã xảy ra lỗi khi kiểm tra cấu hình.');
     }
   }
 
   eleBtnConfig.addEventListener('click', handleSendConfig);
+  eleBtnRenewNetwork.addEventListener('click', handleRenewNetwork);
   eleBtnResetConfig.addEventListener('click', handleResetConfig);
+  eleBtnAcceptError.addEventListener('click', handleAcceptError);
   eleBtnAcceptInfo.addEventListener('click', handleAcceptInfo);
   btnConfirmAccept.addEventListener('click', handleAcceptConfirm);
   eleBtnBack.addEventListener('click', handleBack);
   btnConfirmCancel.addEventListener('click', handleCancelConfirm);
-  eleWrapMain.addEventListener('touchmove', function (event) { event.preventDefault(); }, { passive: false });
+  // eleWrapMain.addEventListener('touchmove', function (event) { event.preventDefault(); }, { passive: false });
 
   eleToggle.forEach(toggle => {
     if (toggle.className.includes('toggle--theme')) {

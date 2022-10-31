@@ -109,18 +109,30 @@ void setupWebserverModeAP()
     server_mode_ap.on("/is-config", HTTP_GET, [](){
       bool checkCached = checkHasWifiCached();
       bool isPass = false;
+      String ssid;
+      String password;
       if(checkCached == true) {
         isPass = true;
+        ssid = tempWifiSSIDModeAP;
+        password = tempWifiPasswordModeAP;
       }else {
-        String ssid = eepromReadWifi("ssid");
-        String password = eepromReadWifi("password");
+        ssid = eepromReadWifi("ssid");
+        password = eepromReadWifi("password");
         if(ssid != "" && password != "") {
           isPass = true;
           cachedWifiConfig(ssid, password);
         }
       }
       if(isPass) {
-        server_mode_ap.send(200, "application/json", "{\"message\":\"WIFI HAS BEEN CONFIG\"}");
+        String response_str;
+        DynamicJsonDocument response_json(200);
+        JsonObject payload = response_json.to<JsonObject>();
+        payload["ssid"] = ssid;
+        payload["password"] = password;
+        payload["message"] = "WIFI HAS BEEN CONFIG";
+        serializeJson(payload, response_str);
+        server_mode_ap.send(200, "application/json", response_str);
+        response_json.clear();
       }else {
         server_mode_ap.send(200, "application/json", "{\"message\":\"WIFI NOT YET CONFIG\"}");
       }
