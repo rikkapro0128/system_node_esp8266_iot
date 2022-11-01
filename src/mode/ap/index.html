@@ -10,7 +10,7 @@
     href="data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9IjQ4MHB0IiB2aWV3Qm94PSIwIDAgNDgwIDQ4MCIgd2lkdGg9IjQ4MHB0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Im00MzIgMjQwYzAgMTA2LjAzOTA2Mi04NS45NjA5MzggMTkyLTE5MiAxOTJzLTE5Mi04NS45NjA5MzgtMTkyLTE5MiA4NS45NjA5MzgtMTkyIDE5Mi0xOTIgMTkyIDg1Ljk2MDkzOCAxOTIgMTkyem0wIDAiIGZpbGw9IiNjZmQyZmMiLz48cGF0aCBkPSJtMjQwIDQ4MGMtMTMyLjU0Njg3NSAwLTI0MC0xMDcuNDUzMTI1LTI0MC0yNDBzMTA3LjQ1MzEyNS0yNDAgMjQwLTI0MCAyNDAgMTA3LjQ1MzEyNSAyNDAgMjQwYy0uMTQ4NDM4IDEzMi40ODQzNzUtMTA3LjUxNTYyNSAyMzkuODUxNTYyLTI0MCAyNDB6bTAtNDY0Yy0xMjMuNzEwOTM4IDAtMjI0IDEwMC4yODkwNjItMjI0IDIyNHMxMDAuMjg5MDYyIDIyNCAyMjQgMjI0IDIyNC0xMDAuMjg5MDYyIDIyNC0yMjRjLS4xNDA2MjUtMTIzLjY1MjM0NC0xMDAuMzQ3NjU2LTIyMy44NTkzNzUtMjI0LTIyNHptMCAwIiBmaWxsPSIjODY5MGZhIi8+PHBhdGggZD0ibTM1MiAyNDBjMCA2MS44NTU0NjktNTAuMTQ0NTMxIDExMi0xMTIgMTEycy0xMTItNTAuMTQ0NTMxLTExMi0xMTIgNTAuMTQ0NTMxLTExMiAxMTItMTEyIDExMiA1MC4xNDQ1MzEgMTEyIDExMnptMCAwIiBmaWxsPSIjNTE1M2ZmIi8+PC9zdmc+" />
   <style>
     * {
-      transition: background 200ms ease-in-out, color 200ms ease-in-out, opacity 200ms ease-in-out, transform 200ms ease-in-out;
+      transition: background 200ms ease-in-out, color 100ms linear, opacity 200ms ease-in-out, transform 200ms ease-in-out;
     }
 
     svg {
@@ -36,7 +36,7 @@
     }
 
     .dark .network {
-      background-color: #7068ff;
+      background-color: #4ade80;
     }
 
     .dark .network svg {
@@ -167,6 +167,7 @@
       text-align: center;
       font-weight: bold;
       font-size: 14px;
+      margin: 0;
     }
 
     .state-config.active {
@@ -254,7 +255,7 @@
     }
 
     .toggle.active {
-      background-color: #4F46E5;
+      background-color: #4ade80;
     }
 
     .toggle.active::before {
@@ -317,6 +318,10 @@
       margin: 0;
     }
 
+    .area-networks {
+      overflow: hidden;
+    }
+
     .network {
       display: flex;
       align-items: center;
@@ -351,10 +356,8 @@
     }
 
     .wrap-networks {
-      margin: -10px 0;
       max-height: 300px;
       overflow-y: scroll;
-      padding: 10px;
     }
 
     .container.area-config,
@@ -366,14 +369,13 @@
       display: none;
     }
 
-    .wrap-main::-webkit-scrollbar {
+    .wrap-area::-webkit-scrollbar {
       display: none;
     }
 
     .wrap-main {
       display: flex;
       flex-wrap: nowrap;
-      overflow-x: scroll;
       max-width: 380px;
       background-color: white;
       border-radius: 1rem;
@@ -432,7 +434,65 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 1.5rem;
+      margin-bottom: 0.8rem;
+    }
+
+    .area-status {
+      margin-top: 1rem;
+    }
+
+    .wrap-status {
+      display: grid;
+      grid-gap: 1rem;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .area-status div {
+      white-space: nowrap;
+    }
+
+    .area-status .title {
+      font-weight: bold;
+      font-size: 0.9rem;
+    }
+
+    .area-status .quality,
+    .area-status .status {
+      text-align: right;
+      position: relative;
+    }
+
+    .area-status .status {
+      margin-right: 1rem;
+    }
+
+    .area-status .status .value.active {
+      background-color: #22C55E;
+    }
+
+    .area-status .status .value {
+      display: block;
+      width: 10px;
+      height: 10px;
+      background-color: #686868;
+      position: absolute;
+      right: 0;
+      margin-right: -1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      border-radius: 50px;
+    }
+
+    .fill-padding {
+      margin-top: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .wrap-area {
+      max-width: 380px;
+      overflow: hidden;
+      display: flex;
+      overflow-x: scroll;
     }
   </style>
 </head>
@@ -454,32 +514,34 @@
     <!-- THIS MAIN CONTENT -->
     <!-- class controll: disable cancel -->
     <main class="wrap-main">
-      <main class="container area-networks">
-        <div class="networks--header">
-          <h3 class="title">Mạng xung quanh</h3>
-          <button class="btn-renew btn">làm mới</button>
-        </div>
-        <div class="wrap-networks"></div>
-      </main>
-      <main class="container area-config">
-        <div class="btn btn-back">&lt; back</div>
-        <h2 class="title">Cấu hình kết nối WIFIs</h2>
-        <div class="form">
-          <div class="form-fill">
-            <label class="form-fill-label" for="ssid">Tên</label>
-            <input class="form-fill-input" placeholder="ví dụ: miru" type="text" name="ssid" id="ssid">
+      <div class="wrap-area">
+        <div class="container area-networks">
+          <div class="networks--header">
+            <h3 class="title">Mạng xung quanh</h3>
+            <button class="btn-renew btn">làm mới</button>
           </div>
-          <div class="form-fill">
-            <label class="form-fill-label" for="password">Mật khẩu</label>
-            <input class="form-fill-input" placeholder="-- mật khẩu sẽ bị ẩn --" type="password" name="password"
-              id="password">
+          <div class="wrap-networks"></div>
+        </div>
+        <div class="container area-config">
+          <div class="btn btn-back">&lt; back</div>
+          <h2 class="title">Cấu hình kết nối WIFIs</h2>
+          <div class="form">
+            <div class="form-fill">
+              <label class="form-fill-label" for="ssid">Tên</label>
+              <input class="form-fill-input" placeholder="ví dụ: miru" type="text" name="ssid" id="ssid">
+            </div>
+            <div class="form-fill">
+              <label class="form-fill-label" for="password">Mật khẩu</label>
+              <input class="form-fill-input" placeholder="-- mật khẩu sẽ bị ẩn --" type="password" name="password"
+                id="password">
+            </div>
+          </div>
+          <div class="wrap-btn">
+            <button class="btn btn-config">Cấu
+              hình</button>
           </div>
         </div>
-        <div class="wrap-btn">
-          <button class="btn btn-config">Cấu
-            hình</button>
-        </div>
-      </main>
+      </div>
       <!-- THIS STATE ERROR -->
       <div class="state-config state-config-error">
         <div class="wrap">
@@ -566,6 +628,26 @@
         </div>
       </div>
     </main>
+    <main class="container area-status">
+      <div class="wrap-status">
+        <div class="name">
+          <span class="title">Tên wifi:</span>
+          <span class="value">None</span>
+        </div>
+        <div class="quality">
+          <span class="title">Chất lượng:</span>
+          <span class="value">None</span>
+        </div>
+        <div class="address">
+          <span class="title">Địa chỉ:</span>
+          <span class="value">None</span>
+        </div>
+        <div class="status">
+          <span class="title">Trạng thái:</span>
+          <span class="value"></span>
+        </div>
+      </div>
+    </main>
     <!-- THIS FOOTER -->
     <footer class="container container-space">
       <p class="copyright">Bản quyền của @miru ngày 29/10/2022</p>
@@ -594,9 +676,10 @@
   const btnConfirmCancel = eleConfigConfirm.querySelector('.btn-cancel-confirm');
   const eleEreaNetwork = document.querySelector('.container.area-networks');
   const eleEreaConfig = document.querySelector('.container.area-config');
+  const eleEreaStatus = document.querySelector('.container.area-status');
   const eleWrapNetwork = document.querySelector('.wrap-networks');
-  const eleWrapMain = document.querySelector('.wrap-main');
-  const mainScrollEnd = eleWrapMain.scrollWidth;
+  const eleWrapArea = document.querySelector('.wrap-area');
+  const mainScrollEnd = eleWrapArea.scrollWidth;
   const scanNetworksTemplate = `<div class="wrap-loading">
     <div class="loading">
       <div class="cut"></div>
@@ -617,7 +700,7 @@ height="20">
 </svg>`;
 
   function handleBack() {
-    eleWrapMain.scrollTo({ behavior: 'smooth', left: 0 });
+    eleWrapArea.scrollTo({ behavior: 'smooth', left: 0 });
   }
 
   async function handleRenewNetwork() {
@@ -634,11 +717,20 @@ height="20">
           eleConfigSuccess.querySelector('.message span').innerHTML = `"${eleSSID.value}"`;
           eleConfigSuccess.classList.add('active');
           eleSSID.value = '';
+          let idPool = setInterval(async () => {
+            const res = await fetch('/is-config');
+            const payload = await res.json();
+            if (payload?.message === 'WIFI HAS BEEN CONFIG') {
+              showInfoStation(payload);
+              clearInterval(idPool);
+            }
+          }, 3000);
         }
       } else {
         alertInfo('[Thông tin]: Bạn không được bỏ trống dữ liệu');
       }
     } catch (error) {
+      console.log(error);
       activeErrorMessage('[có lỗi]: Không thể cấu hình WIFI');
     }
   }
@@ -653,16 +745,16 @@ height="20">
       eleConfigConfirm.classList.remove('active');
       const res = await fetch('/reset-config', { method: 'POST' });
       const payload = await res.json();
-      if (res.status >= 200 && res.status <= 300) {
-        if (payload.message === 'RESET CONFIG SUCCESSFULLY') {
-          handleBack();
-          eleConfigSuccess.classList.remove('active');
-          alertInfo('[Thông tin]: Bạn đã reset cấu hình WIFI thành công');
-        }
+      if (payload.message === 'RESET CONFIG SUCCESSFULLY') {
+        handleBack();
+        eleConfigSuccess.classList.remove('active');
+        alertInfo('[Thông tin]: Bạn đã reset cấu hình WIFI thành công');
+        hiddenInfoStation();
       } else {
         alertInfo('[Thông tin]: Bạn không có quyền cấu hình');
       }
     } catch (error) {
+      console.log(error);
       activeErrorMessage('[có lỗi]: Không thể reset cấu hình WIFI');
     }
   }
@@ -703,7 +795,7 @@ height="20">
   }
 
   async function handleResetConfig() {
-    eleWrapMain.scrollTo({ behavior: 'smooth', left: 0 });
+    eleWrapArea.scrollTo({ behavior: 'smooth', left: 0 });
     activeConfirm({
       message: '[Chú ý]: Bạn có chắc muốn đặt lại cấu hình WIFI?',
     });
@@ -739,11 +831,13 @@ height="20">
           network.addEventListener('click', function () {
             const name = this.getAttribute('data-name');
             eleSSID.value = name;
-            eleWrapMain.scrollTo({ behavior: 'smooth', left: mainScrollEnd });
+            eleWrapArea.scrollTo({ behavior: 'smooth', left: mainScrollEnd });
           })
         })
       }
     } catch (error) {
+      disableScanNetwork();
+      console.log(error);
       activeErrorMessage('[có lỗi]: Quét mạng xung quanh không thành công.');
     }
   }
@@ -765,6 +859,24 @@ height="20">
     eleConfigError.classList.remove('active');
   }
 
+  function showInfoStation(payload) {
+    eleEreaStatus.querySelector('.name .value').innerHTML = payload.ssid;
+    eleEreaStatus.querySelector('.quality .value').innerHTML = Math.min(Math.max(2 * (payload['quality-station'] + 100), 0), 100) + '%';
+    eleEreaStatus.querySelector('.address .value').innerHTML = payload['ip-station'];
+    if (payload?.['status-station']) {
+      const eleStatus = eleEreaStatus.querySelector('.status .value');
+      eleStatus.classList.remove('active');
+      payload['status-station'] ? eleStatus.classList.add('active') : eleStatus.classList.remove('active');
+    }
+  }
+
+  function hiddenInfoStation() {
+    eleEreaStatus.querySelector('.name .value').innerHTML = 'None';
+    eleEreaStatus.querySelector('.quality .value').innerHTML = 'None';
+    eleEreaStatus.querySelector('.address .value').innerHTML = 'None';
+    eleEreaStatus.querySelector('.status .value').classList.remove('active');
+  }
+
   const initState = async () => {
     try {
       const res = await fetch('/is-config');
@@ -772,10 +884,12 @@ height="20">
       if (payload.message === 'WIFI HAS BEEN CONFIG') {
         eleConfigSuccess.querySelector('.message span').innerHTML = `"${payload.ssid}"`;
         eleConfigSuccess.classList.add('active');
+        showInfoStation(payload);
       } else {
         await scanNetworks();
       }
     } catch (error) {
+      console.log(error);
       activeErrorMessage('[có lỗi]: Đã xảy ra lỗi khi kiểm tra cấu hình.');
     }
   }
@@ -788,7 +902,7 @@ height="20">
   btnConfirmAccept.addEventListener('click', handleAcceptConfirm);
   eleBtnBack.addEventListener('click', handleBack);
   btnConfirmCancel.addEventListener('click', handleCancelConfirm);
-  // eleWrapMain.addEventListener('touchmove', function (event) { event.preventDefault(); }, { passive: false });
+  // eleWrapArea.addEventListener('touchmove', function (event) { event.preventDefault(); }, { passive: false });
 
   eleToggle.forEach(toggle => {
     if (toggle.className.includes('toggle--theme')) {

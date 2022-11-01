@@ -18,10 +18,14 @@ DynamicJsonDocument bufferResponseModeAP(8192);
 // FUNCTION PROTOTYPE - TASK
 void eepromReset();
 void setupWifiModeAP();
+void setupWifiModeStation();
 void setupWebserverModeAP();
+void checkWifiConnection();
+void setupWebserverModeStation();
 
 // FUNCTION PROTOTYPE - COMPONENT
 bool checkHasWifiCached();
+void maybeSwitchMode();
 void clearCachedWifiConfig();
 void cachedWifiConfig(String ssid, String password);
 void eepromWriteConfigWifi(String ssid, String password);
@@ -29,11 +33,15 @@ String eepromReadWifi(String key);
 
 // INSTANCE
 ESP8266WebServer server_mode_ap(80);
+ESP8266WebServer server_mode_station(80);
 Scheduler runner;
 
 // TASK
 Task miruSetupWifiAPMode(TASK_IMMEDIATE, TASK_ONCE, &setupWifiModeAP, &runner);
 Task miruSetupWebServerAPMode(TASK_IMMEDIATE, TASK_FOREVER, &setupWebserverModeAP, &runner);
+Task miruSetupWifiStationMode(TASK_IMMEDIATE, TASK_ONCE, &setupWifiModeStation, &runner);
+Task miruSetupWebServerStationMode(TASK_IMMEDIATE, TASK_FOREVER, &setupWebserverModeStation, &runner);
+Task miruCheckWifiConnection(TASK_SECOND, TASK_FOREVER, &checkWifiConnection, &runner);
 
 // WIFI MODE - AP
 String mode_ap_ssid = "esp8266-miru";
@@ -43,9 +51,12 @@ String mode_ap_gateway = "192.168.1.1";
 String mode_ap_subnet = "255.255.255.0";
 String pathFile = "/";
 
+// WIFI MODE - STATION
+
 void setup()
 {
   Serial.begin(115200);
+  Serial.println();
   EEPROM.begin(eepromSize);
   LittleFS.begin();
   // Serial.println();
@@ -53,11 +64,8 @@ void setup()
   // Serial.println(eepromReadWifi("ssid"));
   // Serial.print("password: ");
   // Serial.println(eepromReadWifi("password"));
-  String ssid = eepromReadWifi("ssid");
-  String password = eepromReadWifi("password");
-  cachedWifiConfig(ssid, password);
   runner.startNow();
-  miruSetupWifiAPMode.enable();
+  maybeSwitchMode();
 }
 
 void loop()
@@ -66,17 +74,42 @@ void loop()
   runner.execute();
 }
 
+void setupWifiModeStation() {
+  // ACTIVE MODE AP
+  // WiFi.mode(WIFI_STA);
+  WiFi.begin(tempWifiSSIDModeAP, tempWifiPasswordModeAP);
+  while(!miruCheckWifiConnection.enable());
+}
+
 void setupWifiModeAP()
 {
   // ACTIVE MODE AP
+  // WiFi.mode(WIFI_AP);
   while (!WiFi.softAP(mode_ap_ssid, mode_ap_pass))
     ;
-  WiFi.softAPIP();
   // Serial.printf("[WIFI-AP]( IS SETUP WITH IP: ");
   // Serial.print(ip_mode_ap);
   // Serial.printf(" )\n");
   while (!miruSetupWebServerAPMode.enable())
     ;
+}
+
+void checkWifiConnection() {
+  // enable check wifi connection
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    while(!miruSetupWebServerStationMode.enableIfNot());
+    miruCheckWifiConnection.cancel();
+  }
+}
+
+void setupWebserverModeStation() {
+  if (miruSetupWebServerStationMode.isFirstIteration()) {
+    // [GET] - ROUTE: '/' => Render UI interface
+    server_mode_station.serveStatic("/", LittleFS, "/index.minify.html");
+    server_mode_station.begin();
+  }
+  server_mode_station.handleClient();
 }
 
 void setupWebserverModeAP()
@@ -129,6 +162,9 @@ void setupWebserverModeAP()
         JsonObject payload = response_json.to<JsonObject>();
         payload["ssid"] = ssid;
         payload["password"] = password;
+        payload["ip-station"] = WiFi.localIP();
+        payload["status-station"] = WiFi.status() == WL_CONNECTED ? true : false;
+        payload["quality-station"] = WiFi.RSSI();
         payload["message"] = "WIFI HAS BEEN CONFIG";
         serializeJson(payload, response_str);
         server_mode_ap.send(200, "application/json", response_str);
@@ -145,6 +181,7 @@ void setupWebserverModeAP()
         clearCachedWifiConfig();
       }
       server_mode_ap.send(200, "application/json", "{\"message\":\"RESET CONFIG SUCCESSFULLY\"}");
+      WiFi.disconnect();
     });
     // [POST] - ROUTE: '/config' => Goto config WIFI save below EEPROM
     server_mode_ap.on("/config", HTTP_POST, []() {
@@ -162,6 +199,7 @@ void setupWebserverModeAP()
         cachedWifiConfig(ssid, password);
         // Serial.println("[Save config EEPROM]");
         server_mode_ap.send(200, "application/json", "{\"message\":\"CONFIGURATION WIFI SUCCESSFULLY\"}");
+        WiFi.begin(ssid, password);
       }else {
         server_mode_ap.send(403, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
       }
@@ -231,4 +269,24 @@ void clearCachedWifiConfig() {
 void cachedWifiConfig(String ssid, String password) {
   tempWifiSSIDModeAP = ssid;
   tempWifiPasswordModeAP = password;
+}
+
+void turnOffModeAP() {
+  server_mode_ap.close();
+  miruSetupWebServerAPMode.cancel();
+  WiFi.softAPdisconnect(true);
+}
+
+void maybeSwitchMode() {
+  String ssid = eepromReadWifi("ssid");
+  String password = eepromReadWifi("password");
+  WiFi.mode(WIFI_AP_STA);
+  if(ssid != "" && password != "") {
+    // cached wifi config
+    cachedWifiConfig(ssid, password);
+    // turn on network(mode - STATION)
+    miruSetupWifiStationMode.enable();
+  }
+  // turn on network(mode - AP)
+  miruSetupWifiAPMode.enable();
 }
