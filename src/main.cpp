@@ -10,6 +10,7 @@
 size_t eepromSize = 255;
 String tempWifiSSIDModeAP = "";
 String tempWifiPasswordModeAP = "";
+String getMac = WiFi.macAddress();
 
 // JSON DOCUMENT
 DynamicJsonDocument bufferBodyPaserModeAP(8192);
@@ -44,7 +45,7 @@ Task miruSetupWebServerStationMode(TASK_IMMEDIATE, TASK_FOREVER, &setupWebserver
 Task miruCheckWifiConnection(TASK_SECOND, TASK_FOREVER, &checkWifiConnection, &runner);
 
 // WIFI MODE - AP
-String mode_ap_ssid = "esp8266-miru";
+String mode_ap_ssid = "esp-8266-";
 String mode_ap_pass = "44448888";
 String mode_ap_ip = "192.168.1.120";
 String mode_ap_gateway = "192.168.1.1";
@@ -85,7 +86,9 @@ void setupWifiModeAP()
 {
   // ACTIVE MODE AP
   // WiFi.mode(WIFI_AP);
-  while (!WiFi.softAP(mode_ap_ssid, mode_ap_pass))
+  String genIdBymac = getMac;
+  genIdBymac.replace(":", "");
+  while (!WiFi.softAP(String(mode_ap_ssid + genIdBymac), mode_ap_pass))
     ;
   // Serial.printf("[WIFI-AP]( IS SETUP WITH IP: ");
   // Serial.print(ip_mode_ap);
@@ -174,7 +177,7 @@ void setupWebserverModeAP()
       }
     });
     // [POST] - ROUTE: '/reset-config' => Reset config WIFI
-    server_mode_ap.on("/reset-config", HTTP_POST, [](){
+    server_mode_ap.on("/reset-config-wifi", HTTP_POST, [](){
       bool checkCached = checkHasWifiCached();
       if(checkCached == true) {
         eepromReset();
@@ -184,7 +187,7 @@ void setupWebserverModeAP()
       WiFi.disconnect();
     });
     // [POST] - ROUTE: '/config' => Goto config WIFI save below EEPROM
-    server_mode_ap.on("/config", HTTP_POST, []() {
+    server_mode_ap.on("/config-wifi", HTTP_POST, []() {
       if(server_mode_ap.hasArg("plain")) {
         deserializeJson(bufferBodyPaserModeAP, server_mode_ap.arg("plain"));
         bufferBodyPaserModeAP.shrinkToFit();

@@ -711,7 +711,7 @@ height="20">
     try {
       handleBack();
       if (eleSSID.value.length && elePASSWORD.value.length) {
-        const res = await fetch('/config', { method: 'POST', body: JSON.stringify({ ssid: eleSSID.value, password: elePASSWORD.value }), headers: { 'Content-Type': 'application/json' } });
+        const res = await fetch('/config-wifi', { method: 'POST', body: JSON.stringify({ ssid: eleSSID.value, password: elePASSWORD.value }), headers: { 'Content-Type': 'application/json' } });
         const payload = await res.json();
         if (payload.message === 'CONFIGURATION WIFI SUCCESSFULLY') {
           eleConfigSuccess.querySelector('.message span').innerHTML = `"${eleSSID.value}"`;
@@ -743,7 +743,7 @@ height="20">
   async function handleAcceptConfirm() {
     try {
       eleConfigConfirm.classList.remove('active');
-      const res = await fetch('/reset-config', { method: 'POST' });
+      const res = await fetch('/reset-config-wifi', { method: 'POST' });
       const payload = await res.json();
       if (payload.message === 'RESET CONFIG SUCCESSFULLY') {
         handleBack();
