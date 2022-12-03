@@ -17,7 +17,6 @@ DynamicJsonDocument bufferBodyPaserModeAP(8192);
 DynamicJsonDocument bufferResponseModeAP(8192);
 
 // FUNCTION PROTOTYPE - TASK
-void eepromReset();
 void setupWifiModeAP();
 void setupWifiModeStation();
 void setupWebserverModeAP();
@@ -25,12 +24,16 @@ void checkWifiConnection();
 void setupWebserverModeStation();
 
 // FUNCTION PROTOTYPE - COMPONENT
+void eepromReset();
+void eepromResetAll();
 bool checkHasWifiCached();
 void maybeSwitchMode();
 void clearCachedWifiConfig();
 void cachedWifiConfig(String ssid, String password);
 void eepromWriteConfigWifi(String ssid, String password);
+String eepromReadAll();
 String eepromReadWifi(String key);
+bool eepromWriteValueByKey(String key, String value);
 
 // INSTANCE
 ESP8266WebServer server_mode_ap(80);
@@ -60,6 +63,19 @@ void setup()
   Serial.println();
   EEPROM.begin(eepromSize);
   LittleFS.begin();
+  
+  // eepromResetAll();
+  // Serial.println("[EEPROM - Reseted]");
+  String readEEPROM = eepromReadAll();
+  Serial.print(String("[readEEPROM]: |" + readEEPROM + "|"));
+  Serial.println();
+  Serial.println("[EEPROM - Write]: Writing...");
+  bool check = eepromWriteValueByKey(String("name"), String("miru"));
+  if(check) {
+    readEEPROM = eepromReadAll();
+    Serial.print(String("[readEEPROM]: |" + readEEPROM + "|"));
+    Serial.println();
+  }
   // Serial.println();
   // Serial.print("ssid: ");
   // Serial.println(eepromReadWifi("ssid"));
@@ -176,7 +192,7 @@ void setupWebserverModeAP()
         server_mode_ap.send(200, "application/json", "{\"message\":\"WIFI NOT YET CONFIG\"}");
       }
     });
-    // [POST] - ROUTE: '/reset-config' => Reset config WIFI
+    // [POST] - ROUTE: '/reset-config-wifi' => Reset config WIFI
     server_mode_ap.on("/reset-config-wifi", HTTP_POST, [](){
       bool checkCached = checkHasWifiCached();
       if(checkCached == true) {
@@ -186,7 +202,7 @@ void setupWebserverModeAP()
       server_mode_ap.send(200, "application/json", "{\"message\":\"RESET CONFIG SUCCESSFULLY\"}");
       WiFi.disconnect();
     });
-    // [POST] - ROUTE: '/config' => Goto config WIFI save below EEPROM
+    // [POST] - ROUTE: '/config-wifi' => Goto config WIFI save below EEPROM
     server_mode_ap.on("/config-wifi", HTTP_POST, []() {
       if(server_mode_ap.hasArg("plain")) {
         deserializeJson(bufferBodyPaserModeAP, server_mode_ap.arg("plain"));
@@ -206,6 +222,28 @@ void setupWebserverModeAP()
       }else {
         server_mode_ap.send(403, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
       }
+      bufferBodyPaserModeAP.clear();
+    });
+    // [POST] - ROUTE: '/link-app' => Goto config firebase save below EEPROM
+    server_mode_ap.on("/link-app", HTTP_POST, []() {
+      if(server_mode_ap.hasArg("plain")) {
+        deserializeJson(bufferBodyPaserModeAP, server_mode_ap.arg("plain"));
+        bufferBodyPaserModeAP.shrinkToFit();
+        JsonObject body = bufferBodyPaserModeAP.as<JsonObject>();
+        // Serial.print("ssid: ");
+        // Serial.println(String(body["ssid"]));
+        // Serial.print("password: ");
+        // Serial.println(String(body["password"]));
+        String idUser = body["idUser"];
+        String idNode = body["idNode"];
+        Serial.println(String("[ID_USER]: " + idUser));
+        Serial.println(String("[ID_NODE]: " + idNode));
+        // Serial.println("[Save config EEPROM]");
+        server_mode_ap.send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
+      }else {
+        server_mode_ap.send(403, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
+      }
+      bufferBodyPaserModeAP.clear();
     });
 
     // START WEBSERVER
@@ -216,19 +254,87 @@ void setupWebserverModeAP()
 
 void eepromReset() {
   for(size_t i = 0; i < eepromSize; i++) {
-    EEPROM.write(0x0F + i, '*');
+    EEPROM.write(0x0F + i, '$');
   }
   EEPROM.commit();
 }
 
 void eepromWriteConfigWifi(String ssid, String password) {
-  String temp_wifi = "ssid:" + ssid + "*" + "password:" + password;
+  String temp_wifi = "ssid:" + ssid + "$" + "password:" + password;
   eepromReset();
   for(size_t i = 0; i <= temp_wifi.length(); i++) {
     EEPROM.write(0x0F + i, temp_wifi[i]);
   }
   EEPROM.commit();
 }
+
+// [FUNC TEST]
+
+bool eepromWriteValueByKey(String key, String value) {
+
+  if(key.length() > 0 && value.length() > 0) {
+    String summary = key + ":" + value;
+    for(size_t i = 6; i < eepromSize; i++)
+    {
+      uint8_t space_first = EEPROM.read(0x0F + i);
+      uint8_t space_second = EEPROM.read(0x0F + i + 1);
+      if(space_first == NULL && space_second == NULL) {
+        Serial.println(String("[CO KHA NANG VIET]: " + summary));
+        const uint8_t index_start = i + 1;
+        const uint8_t length_str = summary.length();
+        Serial.println(String("[INDEX START] => " + String(index_start)));
+        Serial.println(String("[LENGTH STRING] => " + String(length_str)));
+        // example: index_start = 1 | length_str = 9
+        // so write: index_start ------- length_str
+        if(eepromSize - index_start > length_str) {
+          // start write key
+          uint8_t start = 0;
+          for(size_t j = index_start; j < index_start + length_str; j++) {
+            Serial.println(String("write => " + String(summary[start])));
+            EEPROM.write(j, (uint8_t)summary[start]);
+            start++;
+          }
+          // EEPROM.end();
+          // while (!EEPROM.commit());
+        }else {
+          // can't enough capicite
+          return false;
+        }
+        return true;
+      }else {
+        if(i == eepromSize - 1) {
+          return false;
+        }else {
+          continue;
+        }
+      }
+    }
+  }else {
+    return false;
+  }
+
+  return false;
+}
+
+void eepromResetAll() {
+  for(size_t i = 0; i < eepromSize; i++)
+  {
+    EEPROM.write(0x0F + i, NULL);
+  }
+  EEPROM.commit();
+}
+
+String eepromReadAll() {
+  String temp;
+  for(size_t i = 0; i < eepromSize; i++)
+  {
+    uint8_t num = EEPROM.read(0x0F + i);
+    temp = String(temp + (char)num);
+  }
+  return temp;
+}
+
+// [FUNC TEST]
 
 String eepromReadWifi(String key) {
   String val;
@@ -247,7 +353,7 @@ String eepromReadWifi(String key) {
   position = (position + key.length() + 1);
   for(size_t i = position; i < val.length(); i++)
   {
-    if(val[i] != '*') {
+    if(val[i] != '$') {
       result += val[i];
     }else {
       break;
