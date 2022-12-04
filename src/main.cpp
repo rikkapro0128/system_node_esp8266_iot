@@ -1,44 +1,180 @@
-#include <Arduino.h>
 #include <EEPROM.h>
+#include <Arduino.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
-#include <TaskScheduler.h>
 #include <ArduinoJson.h>
+#include <TaskScheduler.h>
+#include <ESP8266WebServer.h>
+#include <addons/RTDBHelper.h>
+#include <Firebase_ESP_Client.h>
 #include "LittleFS.h"
 
 // GLOBAL VARIABLE
-size_t eepromSize = 255;
-String tempWifiSSIDModeAP = "";
-String tempWifiPasswordModeAP = "";
+#define PIN_OUT D5
+#define POOLING_WIFI 5000
+
 String getMac = WiFi.macAddress();
+String TYPE_NODE = "LOGIC";
+bool STATUS_PIN = false;
+String DATABASE_NODE = "";
+String DATABASE_URL = "esp8266-device-db-default-rtdb.firebaseio.com";
 
 // JSON DOCUMENT
 DynamicJsonDocument bufferBodyPaserModeAP(8192);
 DynamicJsonDocument bufferResponseModeAP(8192);
 
 // FUNCTION PROTOTYPE - TASK
+float_t checkRam();
+void poolingCheckWifi();
 void setupWifiModeAP();
+void firebaseFollowData();
+void checkFirebaseInit();
+void checkWifiConnection();
 void setupWifiModeStation();
 void setupWebserverModeAP();
-void checkWifiConnection();
 void setupWebserverModeStation();
 
 // FUNCTION PROTOTYPE - COMPONENT
-void eepromReset();
-void eepromResetAll();
-bool checkHasWifiCached();
+void setUpPinMode();
 void maybeSwitchMode();
-void clearCachedWifiConfig();
-void cachedWifiConfig(String ssid, String password);
-void eepromWriteConfigWifi(String ssid, String password);
-String eepromReadAll();
-String eepromReadWifi(String key);
-bool eepromWriteValueByKey(String key, String value);
+void initDatabaseNode();
 
-// INSTANCE
+class EepromMiru {
+
+  public:
+
+    EepromMiru(int size) {  
+      this->size = size;
+    }
+
+    void resetAll() {
+      EEPROM.begin(this->size);
+      for(unsigned int i = 0; i < this->size; i++)
+      {
+        EEPROM.write(i, NULL);
+      }
+      EEPROM.end();
+    }
+
+    String readRaw() {
+      EEPROM.begin(this->size);
+      String temp;
+      for(unsigned int i = 0; i < this->size; i++)
+      {
+        uint8_t num = EEPROM.read(i);
+        temp = String(temp + (char)num);
+      }
+      EEPROM.end();
+      return temp;
+    }
+
+    bool saveSSID(String ssid) {
+      return this->checkWrite(this->addr_ssid, ssid, this->ssid);
+    }
+    bool savePassword(String password) {
+      return this->checkWrite(this->addr_password, password, this->password);
+    }
+    bool saveUserID(String user_id) {
+      return this->checkWrite(this->addr_userID, user_id, this->userID);
+    }
+    bool saveNodeID(String node_id) {
+      return this->checkWrite(this->addr_NodeID, node_id, this->NodeID);
+    }
+
+    String readSSID() {
+      return this->checkRead(this->addr_ssid, this->ssid);
+    }
+    String readPassword() {
+      return this->checkRead(this->addr_password, this->password);
+    }
+    String readNodeID() {
+      return this->checkRead(this->addr_NodeID, this->NodeID);
+    }
+    String readUserID() {
+      return this->checkRead(this->addr_userID, this->userID);
+    }
+
+  private:
+    int size = 1024;
+    String ssid = "";
+    int addr_ssid = 0;
+    String password = "";
+    int addr_password = 50;
+    String userID = "";
+    int addr_userID = 100;
+    String NodeID = "";
+    int addr_NodeID = 150;
+
+    String checkRead(int addr, String &cacheValue) {
+      if(cacheValue.length() > 0) {
+        return cacheValue;
+      }else {
+        String temp = this->readKey(addr);
+        if(temp != cacheValue) {
+          cacheValue = temp;
+        }
+        return temp;
+      }
+    }
+
+    String readKey(int addr) {
+      EEPROM.begin(this->size);
+      String temp = "";
+      for(unsigned int i = addr; i < addr + 50; i++)
+      {
+        uint8_t character = EEPROM.read(i);
+        if(character != NULL) {
+          temp = String(temp + (char)character);
+        }else {
+          break;
+        }
+      }
+      EEPROM.end();
+      return temp;
+    }
+
+    bool writeKey(int addr, String tmp) {
+      int len_str = tmp.length();
+      if(len_str > 50) {
+        return false;
+      }else {
+        EEPROM.begin(this->size);
+        int start = 0;
+        for(unsigned int i = addr; i < addr + 50; i++)
+        {
+          if(i < (addr + len_str)) {
+            EEPROM.write(i, (uint8_t)tmp[start]);
+            start++;
+          }else {
+            EEPROM.write(i, NULL);
+          }
+        }
+        EEPROM.end();
+        return true;
+      }
+    }
+
+    bool checkWrite(int addr, String tmp, String &cached) {
+      bool check = this->writeKey(addr, tmp);
+      if(check) {
+        cached = tmp;
+      }
+      return check;
+    }
+};
+
+// [********* INSTANCE *********]
+
+// => EEPROM
+EepromMiru eeprom(200);
+// => SERVER
 ESP8266WebServer server_mode_ap(80);
 ESP8266WebServer server_mode_station(80);
+// => TASKSHEDULE
 Scheduler runner;
+// => FIREBASE
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
 
 // TASK
 Task miruSetupWifiAPMode(TASK_IMMEDIATE, TASK_ONCE, &setupWifiModeAP, &runner);
@@ -46,6 +182,9 @@ Task miruSetupWebServerAPMode(TASK_IMMEDIATE, TASK_FOREVER, &setupWebserverModeA
 Task miruSetupWifiStationMode(TASK_IMMEDIATE, TASK_ONCE, &setupWifiModeStation, &runner);
 Task miruSetupWebServerStationMode(TASK_IMMEDIATE, TASK_FOREVER, &setupWebserverModeStation, &runner);
 Task miruCheckWifiConnection(TASK_SECOND, TASK_FOREVER, &checkWifiConnection, &runner);
+Task miruFirebaseCheck(TASK_IMMEDIATE, TASK_ONCE, &checkFirebaseInit, &runner);
+Task miruFirebaseFollowData(100, TASK_FOREVER, &firebaseFollowData, &runner);
+Task miruPoolingCheckWifi(POOLING_WIFI, TASK_FOREVER, &poolingCheckWifi, &runner);
 
 // WIFI MODE - AP
 String mode_ap_ssid = "esp-8266-";
@@ -61,26 +200,14 @@ void setup()
 {
   Serial.begin(115200);
   Serial.println();
-  EEPROM.begin(eepromSize);
   LittleFS.begin();
-  
-  // eepromResetAll();
-  // Serial.println("[EEPROM - Reseted]");
-  String readEEPROM = eepromReadAll();
-  Serial.print(String("[readEEPROM]: |" + readEEPROM + "|"));
-  Serial.println();
-  Serial.println("[EEPROM - Write]: Writing...");
-  bool check = eepromWriteValueByKey(String("name"), String("miru"));
-  if(check) {
-    readEEPROM = eepromReadAll();
-    Serial.print(String("[readEEPROM]: |" + readEEPROM + "|"));
-    Serial.println();
-  }
-  // Serial.println();
-  // Serial.print("ssid: ");
-  // Serial.println(eepromReadWifi("ssid"));
-  // Serial.print("password: ");
-  // Serial.println(eepromReadWifi("password"));
+
+  config.database_url = DATABASE_URL;
+  config.signer.test_mode = true;
+  Firebase.begin(&config, &auth);
+
+  setUpPinMode();
+  initDatabaseNode();
   runner.startNow();
   maybeSwitchMode();
 }
@@ -91,35 +218,98 @@ void loop()
   runner.execute();
 }
 
+void checkFirebaseInit() {
+
+  if(!DATABASE_NODE.isEmpty()) {
+    
+    bool check = Firebase.RTDB.getJSON(&fbdo, DATABASE_NODE);
+
+    if(!check && fbdo.dataType() == "null") {
+      FirebaseJson JsonNode;
+      // Create new control [CONTROLL OBJECT]
+      JsonNode.add("value", false);
+      JsonNode.add("type", TYPE_NODE);
+      Firebase.RTDB.updateNodeAsync(&fbdo, DATABASE_NODE, &JsonNode);
+    }else {
+      FirebaseJson &JsonNode = fbdo.jsonObject();
+      FirebaseJson JsonFixNode;
+      bool checkValue = JsonNode.isMember("value");
+      bool checkType = JsonNode.isMember("type");
+      if(!checkValue) { 
+        JsonFixNode.add("value", false);
+        Firebase.RTDB.updateNodeAsync(&fbdo, DATABASE_NODE, &JsonFixNode);
+        JsonFixNode.clear();
+      }
+      if(!checkType) { 
+        JsonFixNode.add("type", TYPE_NODE);
+        Firebase.RTDB.updateNodeAsync(&fbdo, DATABASE_NODE, &JsonFixNode);
+        JsonFixNode.clear();
+      }
+    }
+    // Continue mode controll on data exist
+    miruFirebaseFollowData.enable();
+  }else {
+    Serial.println("[DATABASE_NODE] = Empty");
+  }
+
+}
+
+void firebaseFollowData() {
+  String pathValue = DATABASE_NODE + "/value";
+  Firebase.RTDB.getBool(&fbdo, pathValue);
+  if (fbdo.dataTypeEnum() == fb_esp_rtdb_data_type_boolean) {
+    bool stateFB = fbdo.to<bool>();
+    if(stateFB != STATUS_PIN) {
+      digitalWrite(PIN_OUT, stateFB ? HIGH : LOW);
+      STATUS_PIN = stateFB;
+    }
+  }
+}
+
+void poolingCheckWifi() {
+  if(WiFi.status() != WL_CONNECTED) {
+    miruCheckWifiConnection.enableIfNot();
+  }
+}
+
 void setupWifiModeStation() {
   // ACTIVE MODE AP
-  // WiFi.mode(WIFI_STA);
-  WiFi.begin(tempWifiSSIDModeAP, tempWifiPasswordModeAP);
-  while(!miruCheckWifiConnection.enable());
+  String ssid = eeprom.readSSID();
+  String password = eeprom.readPassword();
+  WiFi.begin(ssid, password);
+  miruCheckWifiConnection.enable();
 }
 
 void setupWifiModeAP()
 {
   // ACTIVE MODE AP
-  // WiFi.mode(WIFI_AP);
   String genIdBymac = getMac;
   genIdBymac.replace(":", "");
-  while (!WiFi.softAP(String(mode_ap_ssid + genIdBymac), mode_ap_pass))
-    ;
-  // Serial.printf("[WIFI-AP]( IS SETUP WITH IP: ");
-  // Serial.print(ip_mode_ap);
-  // Serial.printf(" )\n");
-  while (!miruSetupWebServerAPMode.enable())
-    ;
+  WiFi.softAP(String(mode_ap_ssid + genIdBymac), mode_ap_pass);
+  miruSetupWebServerAPMode.enable();
 }
 
 void checkWifiConnection() {
   // enable check wifi connection
   if (WiFi.status() == WL_CONNECTED)
   {
-    while(!miruSetupWebServerStationMode.enableIfNot());
+    miruSetupWebServerStationMode.enableIfNot();
+    miruFirebaseCheck.enableIfNot();
+    miruPoolingCheckWifi.enableIfNot();
     miruCheckWifiConnection.cancel();
   }
+}
+
+void setUpPinMode() {
+  pinMode(PIN_OUT, OUTPUT);
+  digitalWrite(PIN_OUT, STATUS_PIN ? HIGH : LOW);
+}
+
+void initDatabaseNode() {
+  String userID = eeprom.readUserID();
+  String nodeID = eeprom.readNodeID();
+
+  DATABASE_NODE = "/user-" + userID + "/nodes/" + nodeID;
 }
 
 void setupWebserverModeStation() {
@@ -159,23 +349,9 @@ void setupWebserverModeAP()
     });
     // [GET] - ROUTE: '/is-config' => Check WIFI is configuration
     server_mode_ap.on("/is-config", HTTP_GET, [](){
-      bool checkCached = checkHasWifiCached();
-      bool isPass = false;
-      String ssid;
-      String password;
-      if(checkCached == true) {
-        isPass = true;
-        ssid = tempWifiSSIDModeAP;
-        password = tempWifiPasswordModeAP;
-      }else {
-        ssid = eepromReadWifi("ssid");
-        password = eepromReadWifi("password");
-        if(ssid != "" && password != "") {
-          isPass = true;
-          cachedWifiConfig(ssid, password);
-        }
-      }
-      if(isPass) {
+      String ssid = eeprom.readSSID();
+      String password = eeprom.readPassword();
+      if(ssid.length() > 0 && password.length() > 0) {
         String response_str;
         DynamicJsonDocument response_json(200);
         JsonObject payload = response_json.to<JsonObject>();
@@ -194,10 +370,11 @@ void setupWebserverModeAP()
     });
     // [POST] - ROUTE: '/reset-config-wifi' => Reset config WIFI
     server_mode_ap.on("/reset-config-wifi", HTTP_POST, [](){
-      bool checkCached = checkHasWifiCached();
-      if(checkCached == true) {
-        eepromReset();
-        clearCachedWifiConfig();
+      String ssid = eeprom.readSSID();
+      String password = eeprom.readPassword();
+      if(ssid.length() > 0 && password.length() > 0) {
+        eeprom.saveSSID("");
+        eeprom.savePassword("");
       }
       server_mode_ap.send(200, "application/json", "{\"message\":\"RESET CONFIG SUCCESSFULLY\"}");
       WiFi.disconnect();
@@ -208,14 +385,10 @@ void setupWebserverModeAP()
         deserializeJson(bufferBodyPaserModeAP, server_mode_ap.arg("plain"));
         bufferBodyPaserModeAP.shrinkToFit();
         JsonObject body = bufferBodyPaserModeAP.as<JsonObject>();
-        // Serial.print("ssid: ");
-        // Serial.println(String(body["ssid"]));
-        // Serial.print("password: ");
-        // Serial.println(String(body["password"]));
         String ssid = body["ssid"];
         String password = body["password"];
-        eepromWriteConfigWifi(ssid, password);
-        cachedWifiConfig(ssid, password);
+        eeprom.saveSSID(ssid);
+        eeprom.savePassword(password);
         // Serial.println("[Save config EEPROM]");
         server_mode_ap.send(200, "application/json", "{\"message\":\"CONFIGURATION WIFI SUCCESSFULLY\"}");
         WiFi.begin(ssid, password);
@@ -230,20 +403,45 @@ void setupWebserverModeAP()
         deserializeJson(bufferBodyPaserModeAP, server_mode_ap.arg("plain"));
         bufferBodyPaserModeAP.shrinkToFit();
         JsonObject body = bufferBodyPaserModeAP.as<JsonObject>();
-        // Serial.print("ssid: ");
-        // Serial.println(String(body["ssid"]));
-        // Serial.print("password: ");
-        // Serial.println(String(body["password"]));
+        bool checkIDUser = body["idUser"].isNull();
+        bool checkIDNode = body["idNode"].isNull();
         String idUser = body["idUser"];
         String idNode = body["idNode"];
+        if(!checkIDUser && !checkIDNode) {
+          eeprom.saveNodeID(idNode);
+          eeprom.saveUserID(idUser);
+          server_mode_ap.send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
+        }else {
+          if(checkIDUser) {
+            server_mode_ap.send(200, "application/json", "{\"message\":\"ID USER IS NULL\"}");
+          }else {
+            server_mode_ap.send(200, "application/json", "{\"message\":\"ID NODE IS NULL\"}");
+          }
+        }
         Serial.println(String("[ID_USER]: " + idUser));
         Serial.println(String("[ID_NODE]: " + idNode));
-        // Serial.println("[Save config EEPROM]");
-        server_mode_ap.send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
       }else {
         server_mode_ap.send(403, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
       }
       bufferBodyPaserModeAP.clear();
+    });
+    // [POST] - ROUTE: '/is-link-app' => Check configuration link-app
+    server_mode_ap.on("/is-link-app", HTTP_POST, []() {
+      String nodeID = eeprom.readNodeID();
+      String userID = eeprom.readUserID();
+      if(nodeID.length() && userID.length()) {
+        String response_str;
+        DynamicJsonDocument response_json(200);
+        JsonObject payload = response_json.to<JsonObject>();
+        payload["nodeID"] = nodeID;
+        payload["userID"] = userID;
+        payload["message"] = "CONFIG IS FOUND";
+        serializeJson(payload, response_str);
+        server_mode_ap.send(200, "application/json", response_str);
+        response_json.clear();
+      }else {
+        server_mode_ap.send(403, "application/json", "{\"message\":\"CONFIG NOT FOUND\"}");
+      }
     });
 
     // START WEBSERVER
@@ -252,150 +450,21 @@ void setupWebserverModeAP()
   server_mode_ap.handleClient();
 }
 
-void eepromReset() {
-  for(size_t i = 0; i < eepromSize; i++) {
-    EEPROM.write(0x0F + i, '$');
-  }
-  EEPROM.commit();
-}
-
-void eepromWriteConfigWifi(String ssid, String password) {
-  String temp_wifi = "ssid:" + ssid + "$" + "password:" + password;
-  eepromReset();
-  for(size_t i = 0; i <= temp_wifi.length(); i++) {
-    EEPROM.write(0x0F + i, temp_wifi[i]);
-  }
-  EEPROM.commit();
-}
-
-// [FUNC TEST]
-
-bool eepromWriteValueByKey(String key, String value) {
-
-  if(key.length() > 0 && value.length() > 0) {
-    String summary = key + ":" + value;
-    for(size_t i = 6; i < eepromSize; i++)
-    {
-      uint8_t space_first = EEPROM.read(0x0F + i);
-      uint8_t space_second = EEPROM.read(0x0F + i + 1);
-      if(space_first == NULL && space_second == NULL) {
-        Serial.println(String("[CO KHA NANG VIET]: " + summary));
-        const uint8_t index_start = i + 1;
-        const uint8_t length_str = summary.length();
-        Serial.println(String("[INDEX START] => " + String(index_start)));
-        Serial.println(String("[LENGTH STRING] => " + String(length_str)));
-        // example: index_start = 1 | length_str = 9
-        // so write: index_start ------- length_str
-        if(eepromSize - index_start > length_str) {
-          // start write key
-          uint8_t start = 0;
-          for(size_t j = index_start; j < index_start + length_str; j++) {
-            Serial.println(String("write => " + String(summary[start])));
-            EEPROM.write(j, (uint8_t)summary[start]);
-            start++;
-          }
-          // EEPROM.end();
-          // while (!EEPROM.commit());
-        }else {
-          // can't enough capicite
-          return false;
-        }
-        return true;
-      }else {
-        if(i == eepromSize - 1) {
-          return false;
-        }else {
-          continue;
-        }
-      }
-    }
-  }else {
-    return false;
-  }
-
-  return false;
-}
-
-void eepromResetAll() {
-  for(size_t i = 0; i < eepromSize; i++)
-  {
-    EEPROM.write(0x0F + i, NULL);
-  }
-  EEPROM.commit();
-}
-
-String eepromReadAll() {
-  String temp;
-  for(size_t i = 0; i < eepromSize; i++)
-  {
-    uint8_t num = EEPROM.read(0x0F + i);
-    temp = String(temp + (char)num);
-  }
-  return temp;
-}
-
-// [FUNC TEST]
-
-String eepromReadWifi(String key) {
-  String val;
-  // EXTRACT CONFIGURATION FROM EEPROM
-  for(size_t i = 0; i < eepromSize; i++)
-  {
-    uint8_t num = EEPROM.read(0x0F + i);
-    if(num >= 32 && num <= 126) {
-      val += char(num);
-    }
-  }
-  // START SEARCH
-  String result = "";
-  int position = val.indexOf(key);
-  if(position == -1) return result;
-  position = (position + key.length() + 1);
-  for(size_t i = position; i < val.length(); i++)
-  {
-    if(val[i] != '$') {
-      result += val[i];
-    }else {
-      break;
-    }
-  }
-  return result;
-}
-
-bool checkHasWifiCached() {
-  if(tempWifiSSIDModeAP != "" && tempWifiPasswordModeAP != "") {
-    return true;
-  }else {
-    return false;
-  }
-}
-
-void clearCachedWifiConfig() {
-  tempWifiSSIDModeAP = "";
-  tempWifiPasswordModeAP = "";
-}
-
-void cachedWifiConfig(String ssid, String password) {
-  tempWifiSSIDModeAP = ssid;
-  tempWifiPasswordModeAP = password;
-}
-
 void turnOffModeAP() {
   server_mode_ap.close();
   miruSetupWebServerAPMode.cancel();
   WiFi.softAPdisconnect(true);
 }
 
+float_t checkRam() {
+  uint32_t ramSize = ESP.getFreeHeap();
+  return ((float_t)ramSize / (float_t)80000) * (float_t)100;
+}
+
 void maybeSwitchMode() {
-  String ssid = eepromReadWifi("ssid");
-  String password = eepromReadWifi("password");
   WiFi.mode(WIFI_AP_STA);
-  if(ssid != "" && password != "") {
-    // cached wifi config
-    cachedWifiConfig(ssid, password);
-    // turn on network(mode - STATION)
-    miruSetupWifiStationMode.enable();
-  }
+  // turn on network(mode - STATION)
+  miruSetupWifiStationMode.enable();
   // turn on network(mode - AP)
   miruSetupWifiAPMode.enable();
 }
