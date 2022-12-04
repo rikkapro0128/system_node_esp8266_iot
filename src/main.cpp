@@ -248,8 +248,6 @@ void checkFirebaseInit() {
     }
     // Continue mode controll on data exist
     miruFirebaseFollowData.enable();
-  }else {
-    Serial.println("[DATABASE_NODE] = Empty");
   }
 
 }
@@ -410,7 +408,9 @@ void setupWebserverModeAP()
         if(!checkIDUser && !checkIDNode) {
           eeprom.saveNodeID(idNode);
           eeprom.saveUserID(idUser);
+          initDatabaseNode();
           server_mode_ap.send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
+          miruFirebaseCheck.restart();
         }else {
           if(checkIDUser) {
             server_mode_ap.send(200, "application/json", "{\"message\":\"ID USER IS NULL\"}");
@@ -418,8 +418,6 @@ void setupWebserverModeAP()
             server_mode_ap.send(200, "application/json", "{\"message\":\"ID NODE IS NULL\"}");
           }
         }
-        Serial.println(String("[ID_USER]: " + idUser));
-        Serial.println(String("[ID_NODE]: " + idNode));
       }else {
         server_mode_ap.send(403, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
       }
