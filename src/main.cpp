@@ -11,7 +11,6 @@
 
 // GLOBAL VARIABLE
 #define PIN_OUT D5
-#define NUM_LED 26
 #define POOLING_WIFI 5000
 
 String getMac = WiFi.macAddress();
@@ -19,6 +18,7 @@ String GEN_ID_BY_MAC = String(getMac);
 String ID_DEVICE;
 String TYPE_DEVICE = "COLOR";
 bool STATUS_PIN = false;
+int NUM_LED = 26;
 String DATABASE_URL = "esp8266-device-db-default-rtdb.firebaseio.com";
 
 // JSON DOCUMENT
@@ -33,6 +33,7 @@ void initColorDefault();
 void poolingCheckWifi();
 void checkFirebaseInit();
 void firebaseFollowData();
+void firebaseFollowNumLed();
 void checkWifiConnection();
 void setupWifiModeStation();
 void setupWebserverModeAP();
@@ -231,6 +232,7 @@ Task miruSetupWebServerStationMode(TASK_IMMEDIATE, TASK_FOREVER, &setupWebserver
 Task miruCheckWifiConnection(TASK_SECOND, TASK_FOREVER, &checkWifiConnection, &runner);
 Task miruFirebaseCheck(TASK_IMMEDIATE, TASK_ONCE, &checkFirebaseInit, &runner);
 Task miruFirebaseFollowData(300, TASK_FOREVER, &firebaseFollowData, &runner);
+Task miruFirebaseFollowNumLed(5000, TASK_FOREVER, &firebaseFollowNumLed, &runner);
 Task miruPoolingCheckWifi(POOLING_WIFI, TASK_FOREVER, &poolingCheckWifi, &runner);
 
 // WIFI MODE - AP
@@ -333,6 +335,17 @@ void initColorDefault() {
   COLOR_STATE["contrast"] = 0;
 }
 
+void firebaseFollowNumLed() {
+  String pathValue = String(eeprom.DATABASE_NODE + "/devices/" + ID_DEVICE + "/num");
+  Firebase.RTDB.getJSON(&fbdo, pathValue);
+  int TEMP_NUM_LED = fbdo.to<int>();
+  if (fbdo.dataTypeEnum() == fb_esp_rtdb_data_type_integer && NUM_LED != TEMP_NUM_LED)
+  { 
+    pixels.updateLength(TEMP_NUM_LED);
+    NUM_LED = TEMP_NUM_LED;
+  }
+}
+
 void firebaseFollowData()
 {
   String pathValue = String(eeprom.DATABASE_NODE + "/devices/" + ID_DEVICE + "/value");
@@ -345,6 +358,7 @@ void firebaseFollowData()
     // read color here
     if(miruFirebaseFollowData.isFirstIteration()) {
       init = true;
+      miruFirebaseFollowNumLed.enableIfNot();
     }
     String temp;
     color.toString(temp);
