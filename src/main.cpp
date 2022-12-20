@@ -7,9 +7,11 @@
 #include <addons/RTDBHelper.h>
 #include <Firebase_ESP_Client.h>
 #include "LittleFS.h"
+#include <Adafruit_NeoPixel.h>
 
 // GLOBAL VARIABLE
 #define PIN_OUT D5
+#define NUM_LED 26
 #define POOLING_WIFI 5000
 
 String getMac = WiFi.macAddress();
@@ -218,6 +220,8 @@ Scheduler runner;
 FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
+// => PIXEL LEDs RGB
+Adafruit_NeoPixel pixels(NUM_LED, PIN_OUT, NEO_GRB + NEO_KHZ800);
 
 // TASK
 Task miruSetupWifiAPMode(TASK_IMMEDIATE, TASK_ONCE, &setupWifiModeAP, &runner);
@@ -252,6 +256,8 @@ void setup()
   ID_DEVICE = String("device-" + GEN_ID_BY_MAC + "-1");
   Firebase.begin(&config, &auth);
   initColorDefault();
+  pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
+  pixels.clear(); // Set all pixel colors to 'off'
 
   setUpPinMode();
   runner.startNow();
@@ -267,66 +273,50 @@ void loop()
 void checkFirebaseInit()
 {
 
-  if (!eeprom.DATABASE_NODE.isEmpty())
-  {
-    String UserID = eeprom.readUserID();
-    bool checkUser = Firebase.RTDB.getJSON(&fbdo, String("/user-" + UserID));
+  // [Check] - NodeID is exist
+  String devicePath = String("/devices/" + ID_DEVICE);
 
-    // [Check] - UserID is exist
-    if (checkUser && fbdo.dataType() == "json")
-    {
-      // [Check] - NodeID is exist
-      bool check = Firebase.RTDB.getJSON(&fbdo, eeprom.DATABASE_NODE);
-      FirebaseJson node = fbdo.jsonObject();
+  Firebase.RTDB.getJSON(&fbdo, eeprom.DATABASE_NODE + devicePath);
 
-      String devicePath = String("/devices/" + ID_DEVICE);
-      String value = String(devicePath + "/value");
-      String type = String(devicePath + "/type");
-      String pin = String(devicePath + "/pin");
-      
-      bool checkDevice = node.isMember(devicePath);
+  FirebaseJson node = fbdo.jsonObject();
 
-      if (!check && fbdo.dataType() == "null" || !checkDevice)
-      {
-        FirebaseJson JsonNode;
-        // Create new control [DEVICE OBJECT] IF "NODE NOT EXIST"
+  String value = String(devicePath + "/value");
+  String num = String(devicePath + "/num");
+  String type = String(devicePath + "/type");
+  String pin = String(devicePath + "/pin");
 
-        JsonNode.set(type, TYPE_DEVICE);
-        JsonNode.set(pin, PIN_OUT);
-        
-        FirebaseJson color;
-        initColorValue(color);
-        JsonNode.set(value, color);
-        Firebase.RTDB.updateNodeAsync(&fbdo, eeprom.DATABASE_NODE, &JsonNode);
-        color.clear();
-        JsonNode.clear();
-      }
-      else
-      {
-        // Check Field [DEVICE OBJECT]
-        FirebaseJson JsonFixNode;
-        if (!node.isMember(value))
-        {
-          FirebaseJson color;
-          initColorValue(color);
-          JsonFixNode.add("value", color);
-          color.clear();
-        }
-        if (!node.isMember(type))
-        {
-          JsonFixNode.add("type", TYPE_DEVICE);
-        }
-        if (!node.isMember(pin))
-        {
-          JsonFixNode.add("pin", PIN_OUT);
-        }
-        Firebase.RTDB.updateNodeAsync(&fbdo, eeprom.DATABASE_NODE + devicePath, &JsonFixNode);
-        JsonFixNode.clear();
-      }
-      // Continue mode controll on data exist
-      miruFirebaseFollowData.enable();
-    }
+  FirebaseJson JsonFixNode = node;
+
+  if(!JsonFixNode.isMember("value/r")) {
+    JsonFixNode.set("value/r", 0);
   }
+  if(!JsonFixNode.isMember("value/g")) {
+    JsonFixNode.set("value/g", 0);
+  }
+  if(!JsonFixNode.isMember("value/b")) {
+    JsonFixNode.set("value/b", 0);
+  }
+  if(!JsonFixNode.isMember("value/contrast")) {
+    JsonFixNode.set("value/contrast", 0);
+  }
+
+  if (!JsonFixNode.isMember(type))
+  {
+    JsonFixNode.add("type", TYPE_DEVICE);
+  }
+  if (!JsonFixNode.isMember(num))
+  {
+    JsonFixNode.add("num", NUM_LED);
+  }
+  if (!JsonFixNode.isMember(pin))
+  {
+    JsonFixNode.add("pin", PIN_OUT);
+  }
+  Firebase.RTDB.updateNode(&fbdo, eeprom.DATABASE_NODE + devicePath, &JsonFixNode);
+  // JsonFixNode.clear();
+  Serial.println("Enabled Task!");
+  miruFirebaseFollowData.enableIfNot();
+
 }
 
 void initColorValue(FirebaseJson &ctx) {
@@ -350,49 +340,51 @@ void firebaseFollowData()
   if (fbdo.dataTypeEnum() == fb_esp_rtdb_data_type_json)
   {
     bool isChanged = false;
+    bool init = false;
     FirebaseJson color = fbdo.jsonObject();
     // read color here
-    FirebaseJsonData r;
-    FirebaseJsonData g;
-    FirebaseJsonData b;
-    FirebaseJsonData contrast;
-    color.get(r, "r");
-    color.get(g, "g");
-    color.get(b, "b");
-    color.get(contrast, "contrast");
-    if(COLOR_STATE["r"] != r.to<int>()) {
-      // Serial.println("[CHANGED - R]");
-      // DO SOME THING WHEN CHANGED - R
-
-      COLOR_STATE["r"] = r.to<int>();
+    if(miruFirebaseFollowData.isFirstIteration()) {
+      init = true;
+    }
+    String temp;
+    color.toString(temp);
+    DynamicJsonDocument COLOR_TEMP(255);
+    deserializeJson(COLOR_TEMP, temp);
+    if(COLOR_STATE["r"] != COLOR_TEMP["r"] || init) {
+      COLOR_STATE["r"] = COLOR_TEMP["r"];
       isChanged = true;
     }
-    if(COLOR_STATE["g"] != g.to<int>()) {
-      // Serial.println("[CHANGED - G]");
-      // DO SOME THING WHEN CHANGED - G
-
-      COLOR_STATE["g"] = g.to<int>();
+    if(COLOR_STATE["b"] != COLOR_TEMP["b"] || init) {
+      COLOR_STATE["b"] = COLOR_TEMP["b"];
       isChanged = true;
     }
-    if(COLOR_STATE["b"] != b.to<int>()) {
-      // Serial.println("[CHANGED - B]");
-      // DO SOME THING WHEN CHANGED - B
-
-      COLOR_STATE["b"] = b.to<int>();
+    if(COLOR_STATE["g"] != COLOR_TEMP["g"] || init) {
+      COLOR_STATE["g"] = COLOR_TEMP["g"];
       isChanged = true;
     }
-    if(COLOR_STATE["contrast"] != contrast.to<int>()) {
-      // Serial.println("[CHANGED - CONTRAST]");
-      // DO SOME THING WHEN CHANGED - CONTRAST
-
-      COLOR_STATE["contrast"] = contrast.to<int>();
+    if(COLOR_STATE["contrast"] != COLOR_TEMP["contrast"] || init) {
+      COLOR_STATE["contrast"] = COLOR_TEMP["contrast"];
       isChanged = true;
     }
+    COLOR_TEMP.clear();
     if(isChanged) {
+      Serial.println("[COLOR - CHANGED]");
       // change color here
-      
+      pixels.clear(); // Set all pixel colors to 'off'
+      for(int i = 0; i < NUM_LED; i++) { // For each pixel...
+        // pixels.Color() takes RGB values, from 0,0,0 up to 255,255,255
+        // Here we're using a moderately bright green color:
+        pixels.setPixelColor(i, pixels.Color(COLOR_STATE["r"], COLOR_STATE["g"], COLOR_STATE["b"]));
+      }
+      pixels.setBrightness(COLOR_STATE["contrast"]);
+      pixels.show();   // Send the updated pixel colors to the hardware.
+      // Serial.println(String("rgb(" + String(COLOR_STATE["r"]) + ", " + String(COLOR_STATE["g"]) + ", " + String(COLOR_STATE["b"]) + ")"));
     }
   }
+}
+
+void changeColor() {
+
 }
 
 void poolingCheckWifi()
