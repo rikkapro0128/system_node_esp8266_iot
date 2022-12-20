@@ -15,25 +15,27 @@
 String getMac = WiFi.macAddress();
 String GEN_ID_BY_MAC = String(getMac);
 String ID_DEVICE;
-String TYPE_DEVICE = "LOGIC";
+String TYPE_DEVICE = "COLOR";
 bool STATUS_PIN = false;
 String DATABASE_URL = "esp8266-device-db-default-rtdb.firebaseio.com";
 
 // JSON DOCUMENT
 DynamicJsonDocument bufferBodyPaserModeAP(8192);
 DynamicJsonDocument bufferResponseModeAP(8192);
+DynamicJsonDocument COLOR_STATE(255);
 
 // FUNCTION PROTOTYPE - TASK
 float_t checkRam();
-void poolingCheckWifi();
 void setupWifiModeAP();
-void firebaseFollowData();
+void initColorDefault();
+void poolingCheckWifi();
 void checkFirebaseInit();
+void firebaseFollowData();
 void checkWifiConnection();
 void setupWifiModeStation();
 void setupWebserverModeAP();
 void setupWebserverModeStation();
-void initDevice(FirebaseJson &ctx, FirebaseJson &node);
+void initColorValue(FirebaseJson &ctx);
 
 // FUNCTION PROTOTYPE - COMPONENT
 void setUpPinMode();
@@ -224,7 +226,7 @@ Task miruSetupWifiStationMode(TASK_IMMEDIATE, TASK_ONCE, &setupWifiModeStation, 
 Task miruSetupWebServerStationMode(TASK_IMMEDIATE, TASK_FOREVER, &setupWebserverModeStation, &runner);
 Task miruCheckWifiConnection(TASK_SECOND, TASK_FOREVER, &checkWifiConnection, &runner);
 Task miruFirebaseCheck(TASK_IMMEDIATE, TASK_ONCE, &checkFirebaseInit, &runner);
-Task miruFirebaseFollowData(100, TASK_FOREVER, &firebaseFollowData, &runner);
+Task miruFirebaseFollowData(300, TASK_FOREVER, &firebaseFollowData, &runner);
 Task miruPoolingCheckWifi(POOLING_WIFI, TASK_FOREVER, &poolingCheckWifi, &runner);
 
 // WIFI MODE - AP
@@ -249,6 +251,7 @@ void setup()
   GEN_ID_BY_MAC.replace(":", "");
   ID_DEVICE = String("device-" + GEN_ID_BY_MAC + "-1");
   Firebase.begin(&config, &auth);
+  initColorDefault();
 
   setUpPinMode();
   runner.startNow();
@@ -277,7 +280,7 @@ void checkFirebaseInit()
       FirebaseJson node = fbdo.jsonObject();
 
       String devicePath = String("/devices/" + ID_DEVICE);
-      String state = String(devicePath + "/state");
+      String value = String(devicePath + "/value");
       String type = String(devicePath + "/type");
       String pin = String(devicePath + "/pin");
       
@@ -288,19 +291,26 @@ void checkFirebaseInit()
         FirebaseJson JsonNode;
         // Create new control [DEVICE OBJECT] IF "NODE NOT EXIST"
 
-        JsonNode.set(state, false);
         JsonNode.set(type, TYPE_DEVICE);
         JsonNode.set(pin, PIN_OUT);
+        
+        FirebaseJson color;
+        initColorValue(color);
+        JsonNode.set(value, color);
         Firebase.RTDB.updateNodeAsync(&fbdo, eeprom.DATABASE_NODE, &JsonNode);
-        // JsonNode.clear();
+        color.clear();
+        JsonNode.clear();
       }
       else
       {
         // Check Field [DEVICE OBJECT]
         FirebaseJson JsonFixNode;
-        if (!node.isMember(state))
+        if (!node.isMember(value))
         {
-          JsonFixNode.add("state", false);
+          FirebaseJson color;
+          initColorValue(color);
+          JsonFixNode.add("value", color);
+          color.clear();
         }
         if (!node.isMember(type))
         {
@@ -310,8 +320,8 @@ void checkFirebaseInit()
         {
           JsonFixNode.add("pin", PIN_OUT);
         }
-        // JsonFixNode.clear();
         Firebase.RTDB.updateNodeAsync(&fbdo, eeprom.DATABASE_NODE + devicePath, &JsonFixNode);
+        JsonFixNode.clear();
       }
       // Continue mode controll on data exist
       miruFirebaseFollowData.enable();
@@ -319,20 +329,60 @@ void checkFirebaseInit()
   }
 }
 
-void initDevice(FirebaseJson &ctx) {
+void initColorValue(FirebaseJson &ctx) {
+  ctx.add("r", 0);
+  ctx.add("g", 0);
+  ctx.add("b", 0);
+  ctx.add("contrast", 0);
+}
+
+void initColorDefault() {
+  COLOR_STATE["r"] = 0;
+  COLOR_STATE["g"] = 0;
+  COLOR_STATE["b"] = 0;
+  COLOR_STATE["contrast"] = 0;
 }
 
 void firebaseFollowData()
 {
-  String pathValue = String(eeprom.DATABASE_NODE + "/devices/" + ID_DEVICE + "/state");
-  Firebase.RTDB.getBool(&fbdo, pathValue);
-  if (fbdo.dataTypeEnum() == fb_esp_rtdb_data_type_boolean)
+  String pathValue = String(eeprom.DATABASE_NODE + "/devices/" + ID_DEVICE + "/value");
+  Firebase.RTDB.getJSON(&fbdo, pathValue);
+  if (fbdo.dataTypeEnum() == fb_esp_rtdb_data_type_json)
   {
-    bool stateFB = fbdo.to<bool>();
-    if (stateFB != STATUS_PIN)
-    {
-      digitalWrite(PIN_OUT, stateFB ? HIGH : LOW);
-      STATUS_PIN = stateFB;
+    bool isChanged = false;
+    FirebaseJson color = fbdo.jsonObject();
+    // change color here
+    FirebaseJsonData r;
+    FirebaseJsonData g;
+    FirebaseJsonData b;
+    FirebaseJsonData contrast;
+    color.get(r, "r");
+    color.get(g, "g");
+    color.get(b, "b");
+    color.get(contrast, "contrast");
+    if(COLOR_STATE["r"] != r.to<int>()) {
+      // Serial.println("[CHANGED - R]");
+      // DO SOME THING WHEN CHANGED - R
+
+      COLOR_STATE["r"] = r.to<int>();
+    }
+    if(COLOR_STATE["g"] != g.to<int>()) {
+      // Serial.println("[CHANGED - G]");
+      // DO SOME THING WHEN CHANGED - G
+
+      COLOR_STATE["g"] = g.to<int>();
+    }
+    if(COLOR_STATE["b"] != b.to<int>()) {
+      // Serial.println("[CHANGED - B]");
+      // DO SOME THING WHEN CHANGED - B
+
+      COLOR_STATE["b"] = b.to<int>();
+    }
+    if(COLOR_STATE["contrast"] != contrast.to<int>()) {
+      // Serial.println("[CHANGED - CONTRAST]");
+      // DO SOME THING WHEN CHANGED - CONTRAST
+
+      COLOR_STATE["contrast"] = contrast.to<int>();
     }
   }
 }
