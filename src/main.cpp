@@ -15,7 +15,7 @@
 String getMac = WiFi.macAddress();
 String GEN_ID_BY_MAC = String(getMac);
 String ID_DEVICE;
-String TYPE_NODE = "LOGIC";
+String TYPE_DEVICE = "LOGIC";
 bool STATUS_PIN = false;
 String DATABASE_URL = "esp8266-device-db-default-rtdb.firebaseio.com";
 
@@ -33,7 +33,7 @@ void checkWifiConnection();
 void setupWifiModeStation();
 void setupWebserverModeAP();
 void setupWebserverModeStation();
-void initDevice(FirebaseJson &ctx);
+void initDevice(FirebaseJson &ctx, FirebaseJson &node);
 
 // FUNCTION PROTOTYPE - COMPONENT
 void setUpPinMode();
@@ -274,34 +274,44 @@ void checkFirebaseInit()
     {
       // [Check] - NodeID is exist
       bool check = Firebase.RTDB.getJSON(&fbdo, eeprom.DATABASE_NODE);
+      FirebaseJson node = fbdo.jsonObject();
 
-      if (!check && fbdo.dataType() == "null")
+      String devicePath = String("/devices/" + ID_DEVICE);
+      String state = String(devicePath + "/state");
+      String type = String(devicePath + "/type");
+      String pin = String(devicePath + "/pin");
+      
+      bool checkDevice = node.isMember(devicePath);
+
+      if (!check && fbdo.dataType() == "null" || !checkDevice)
       {
         FirebaseJson JsonNode;
-        // Create new control [CONTROLL OBJECT]
-        // JsonNode.add("value", false);
-        JsonNode.add("type", TYPE_NODE);
-        initDevice(JsonNode);
+        // Create new control [DEVICE OBJECT] IF "NODE NOT EXIST"
+
+        JsonNode.set(state, false);
+        JsonNode.set(type, TYPE_DEVICE);
+        JsonNode.set(pin, PIN_OUT);
         Firebase.RTDB.updateNodeAsync(&fbdo, eeprom.DATABASE_NODE, &JsonNode);
+        // JsonNode.clear();
       }
       else
       {
-        FirebaseJson &JsonNode = fbdo.jsonObject();
+        // Check Field [DEVICE OBJECT]
         FirebaseJson JsonFixNode;
-        bool checkDevice = JsonNode.isMember(String("devices/" + ID_DEVICE));
-        bool checkType = JsonNode.isMember("type");
-        if (!checkDevice)
+        if (!node.isMember(state))
         {
-          initDevice(JsonFixNode);
-          Firebase.RTDB.updateNodeAsync(&fbdo, eeprom.DATABASE_NODE, &JsonFixNode);
-          JsonFixNode.clear();
+          JsonFixNode.add("state", false);
         }
-        if (!checkType)
+        if (!node.isMember(type))
         {
-          JsonFixNode.add("type", TYPE_NODE);
-          Firebase.RTDB.updateNodeAsync(&fbdo, eeprom.DATABASE_NODE, &JsonFixNode);
-          JsonFixNode.clear();
+          JsonFixNode.add("type", TYPE_DEVICE);
         }
+        if (!node.isMember(pin))
+        {
+          JsonFixNode.add("pin", PIN_OUT);
+        }
+        // JsonFixNode.clear();
+        Firebase.RTDB.updateNodeAsync(&fbdo, eeprom.DATABASE_NODE + devicePath, &JsonFixNode);
       }
       // Continue mode controll on data exist
       miruFirebaseFollowData.enable();
@@ -310,9 +320,6 @@ void checkFirebaseInit()
 }
 
 void initDevice(FirebaseJson &ctx) {
-  String devicePath = String("devices/" + ID_DEVICE);
-  ctx.set(String(devicePath + "/state"), false);
-  ctx.set(String(devicePath + "/pin"), PIN_OUT);
 }
 
 void firebaseFollowData()
