@@ -351,7 +351,7 @@ void firebaseFollowData()
   {
     bool isChanged = false;
     FirebaseJson color = fbdo.jsonObject();
-    // change color here
+    // read color here
     FirebaseJsonData r;
     FirebaseJsonData g;
     FirebaseJsonData b;
@@ -365,24 +365,32 @@ void firebaseFollowData()
       // DO SOME THING WHEN CHANGED - R
 
       COLOR_STATE["r"] = r.to<int>();
+      isChanged = true;
     }
     if(COLOR_STATE["g"] != g.to<int>()) {
       // Serial.println("[CHANGED - G]");
       // DO SOME THING WHEN CHANGED - G
 
       COLOR_STATE["g"] = g.to<int>();
+      isChanged = true;
     }
     if(COLOR_STATE["b"] != b.to<int>()) {
       // Serial.println("[CHANGED - B]");
       // DO SOME THING WHEN CHANGED - B
 
       COLOR_STATE["b"] = b.to<int>();
+      isChanged = true;
     }
     if(COLOR_STATE["contrast"] != contrast.to<int>()) {
       // Serial.println("[CHANGED - CONTRAST]");
       // DO SOME THING WHEN CHANGED - CONTRAST
 
       COLOR_STATE["contrast"] = contrast.to<int>();
+      isChanged = true;
+    }
+    if(isChanged) {
+      // change color here
+      
     }
   }
 }
