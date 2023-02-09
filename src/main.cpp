@@ -31,6 +31,7 @@ DynamicJsonDocument bufferResponseModeAP(8192);
 
 // FUNCTION PROTOTYPE - TASK
 void checkRam();
+void checkWifi();
 void checkRequestComing();
 void firebaseFollowData();
 void checkFirebaseInit();
@@ -55,13 +56,19 @@ class EepromMiru
 
 public:
   String DATABASE_NODE = "";
+  String databaseUrl = "";
   bool canAccess = false;
 
   EepromMiru(int size, String url_database = "")
   {
     this->size = size;
-    this->updateDatabaseNode(this->readUserID(), this->readNodeID());
     this->databaseUrl = url_database;
+  }
+
+  void begin()
+  {
+    this->DATABASE_NODE = this->readDatabaseUrlNode();
+    this->checkAccess();
   }
 
   void resetAll()
@@ -98,13 +105,15 @@ public:
   }
   bool saveUserID(String user_id)
   {
+    bool state = this->checkWrite(this->addr_userID, user_id, this->userID);
     this->updateDatabaseNode(user_id, this->readNodeID());
-    return this->checkWrite(this->addr_userID, user_id, this->userID);
+    return state;
   }
   bool saveNodeID(String node_id)
   {
+    bool state = this->checkWrite(this->addr_NodeID, node_id, this->NodeID);
     this->updateDatabaseNode(this->readUserID(), node_id);
-    return this->checkWrite(this->addr_NodeID, node_id, this->NodeID);
+    return state;
   }
   bool saveDatabaseUrl(String url)
   {
@@ -137,6 +146,10 @@ public:
     this->maxCharacter = 0;
     return temp;
   }
+  String readDatabaseUrlNode()
+  {
+    return String("/user-" + this->readUserID() + "/nodes/node-" + this->readNodeID());
+  }
 
 private:
   int size = 1024;
@@ -148,7 +161,6 @@ private:
   int addr_userID = 100;
   String NodeID = "";
   int addr_NodeID = 150;
-  String databaseUrl = "";
   int addr_databaseUrl = 200;
   uint8_t maxCharacter = 0;
 
@@ -192,7 +204,11 @@ private:
   bool writeKey(int addr, String tmp, uint8_t limit = 50)
   {
     int len_str = tmp.length();
-    if (len_str > this->maxCharacter || limit)
+    uint8_t checkLimit = this->maxCharacter ? this->maxCharacter : limit;
+#ifdef _DEBUG_
+    Serial.println(checkLimit);
+#endif
+    if (len_str > checkLimit)
     {
       return false;
     }
@@ -200,7 +216,7 @@ private:
     {
       EEPROM.begin(this->size);
       int start = 0;
-      for (unsigned int i = addr; i < addr + 50; i++)
+      for (uint8_t i = addr; i < addr + checkLimit; i++)
       {
         if (i < (addr + len_str))
         {
@@ -212,6 +228,7 @@ private:
           EEPROM.write(i, NULL);
         }
       }
+      EEPROM.commit();
       EEPROM.end();
       return true;
     }
@@ -227,10 +244,17 @@ private:
     return check;
   }
 
-  void updateDatabaseNode(String uid, String nid)
+  void updateDatabaseNode(String uid = "", String nid = "")
   {
-    this->DATABASE_NODE = String(this->databaseUrl + "/user-" + uid + "/nodes/" + nid);
-    if (this->readNodeID().length() > 0 && this->readUserID().length() > 0 && this->readDatabaseUrl().length() > 0)
+    this->DATABASE_NODE = String("/user-" + uid + "/nodes/node-" + nid);
+    this->checkAccess();
+  }
+  void checkAccess()
+  {
+    String nodeId = this->readNodeID();
+    String userId = this->readUserID();
+    String dbURL = this->readDatabaseUrl();
+    if (nodeId.length() > 0 && userId.length() > 0 && dbURL.length() > 0)
     {
       this->canAccess = true;
     }
@@ -259,10 +283,11 @@ FirebaseConfig config;
 
 // TASK
 Task miruCheckRequestComming(500, TASK_FOREVER, &checkRequestComing, &runner, true);
-Task miruSetupWifiStationMode(200, TASK_ONCE, &setupWifiModeStation, &runner);
-Task miruFirebaseCheck(100, TASK_ONCE, &checkFirebaseInit, &runner);
-Task miruFirebaseFollowData(100, TASK_FOREVER, &firebaseFollowData, &runner);
+Task miruSetupWifiStationMode(200, TASK_ONCE, &setupWifiModeStation, &runner, true);
+Task miruFirebaseCheck(200, TASK_ONCE, &checkFirebaseInit, &runner);
+Task miruFirebaseFollowData(200, TASK_FOREVER, &firebaseFollowData, &runner);
 Task mirucheckRam(1000, TASK_FOREVER, &checkRam, &runner, true);
+Task miruPoolingWiFi(2000, TASK_FOREVER, &checkWifi, &runner, true);
 
 // WIFI MODE - AP
 String mode_ap_ssid = "esp8266-";
@@ -280,12 +305,15 @@ void setup()
   Serial.begin(115200);
   Serial.println("");
   Serial.println("[---PROGRAM START---]");
-  viewEEPROM();
 #endif
 
   LittleFS.begin();
 
-  config.database_url = DATABASE_URL;
+  eeprom.begin();
+#ifdef _DEBUG_
+  viewEEPROM();
+#endif
+  config.database_url = eeprom.databaseUrl;
   config.signer.test_mode = true;
   GEN_ID_BY_MAC.replace(":", "");
   ID_DEVICE = String("device-" + GEN_ID_BY_MAC + "-1");
@@ -316,9 +344,14 @@ void viewEEPROM()
   String url = eeprom.readDatabaseUrl();
   String nodeID = eeprom.readNodeID();
   String userID = eeprom.readUserID();
+  String dbNode = eeprom.DATABASE_NODE;
+  String urlNode = eeprom.readDatabaseUrlNode();
+
   Serial.println("WIFI NAME = " + ssid + " | length = " + String(ssid.length()));
   Serial.println("WIFI PASS = " + password + " | length = " + String(password.length()));
   Serial.println("WIFI DATATBASE URL = " + url + " | length = " + String(url.length()));
+  Serial.println("STATE URL = " + String(eeprom.canAccess));
+  Serial.println("WIFI DATATBASE URL - NODE = " + dbNode + " | length = " + String(dbNode.length()));
   Serial.println("WIFI NODE ID = " + nodeID + " | length = " + String(nodeID.length()));
   Serial.println("WIFI USER ID = " + userID + " | length = " + String(userID.length()));
 }
@@ -327,45 +360,53 @@ void viewEEPROM()
 void checkFirebaseInit()
 {
   // [Check] - NodeID is exist
-  String devicePath = String("/devices/" + ID_DEVICE);
 
-  Firebase.RTDB.getJSON(&fbdo, eeprom.DATABASE_NODE + devicePath);
-
-  FirebaseJson node = fbdo.jsonObject();
-
-  // [Check] - NodeID is exist
-  FirebaseJson JsonFixNode = node;
-
-  if (!node.isMember("state"))
+  if (eeprom.canAccess)
   {
-    JsonFixNode.add("state", false);
-  }
-  if (!node.isMember("type"))
-  {
-    JsonFixNode.add("type", TYPE_DEVICE);
-  }
-  if (!node.isMember("pin"))
-  {
-    JsonFixNode.add("pin", PIN_OUT);
-  }
-  // JsonFixNode.clear();
-  Firebase.RTDB.updateNodeAsync(&fbdo, eeprom.DATABASE_NODE + devicePath, &JsonFixNode);
+    String pathDevice = String(eeprom.DATABASE_NODE + "/devices");
+    FirebaseJson json;
 
-  miruFirebaseFollowData.enableIfNot();
+    json.set("device-1/state", false);
+    json.set("device-1/type", TYPE_DEVICE);
+
+    json.set("device-2/state", false);
+    json.set("device-2/type", TYPE_DEVICE);
+
+    json.set("device-3/state", false);
+    json.set("device-3/type", TYPE_DEVICE);
+
+    Firebase.RTDB.updateNodeAsync(&fbdo, pathDevice, &json);
+    json.clear();
+  }
+  miruFirebaseFollowData.restart();
 }
 
 void firebaseFollowData()
 {
-  String pathValue = String(eeprom.DATABASE_NODE + "/devices/" + ID_DEVICE + "/state");
-  Firebase.RTDB.getBool(&fbdo, pathValue);
-  if (fbdo.dataTypeEnum() == fb_esp_rtdb_data_type_boolean)
+  if (eeprom.canAccess)
   {
-    bool stateFB = fbdo.to<bool>();
-    if (stateFB != STATUS_PIN)
-    {
-      digitalWrite(PIN_OUT, stateFB ? HIGH : LOW);
-      STATUS_PIN = stateFB;
-    }
+    String pathValue = String(eeprom.DATABASE_NODE + "/devices");
+    Firebase.RTDB.getJSON(&fbdo, pathValue);
+  }
+  if (fbdo.dataTypeEnum() == fb_esp_rtdb_data_type_json)
+  {
+#ifdef _DEBUG_
+    Serial.println(fbdo.jsonString());
+#endif
+  }
+  fbdo.clear();
+}
+
+void checkWifi()
+{
+#ifdef _DEBUG_
+  Serial.println(String("Interation Firebase Check = " + String(miruFirebaseCheck.getIterations())));
+#endif
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    miruFirebaseCheck.enable();
+  }else if(WiFi.status() == WL_DISCONNECTED) {
+    miruFirebaseCheck.setIterations(TASK_ONCE);
   }
 }
 
@@ -382,6 +423,8 @@ void setupWifiModeStation()
   if (ssid.length() > 0 && password.length() > 0)
   {
     WiFi.begin(ssid, password);
+    WiFi.setAutoConnect(true);
+    WiFi.setAutoConnect(true);
   }
 }
 
@@ -424,26 +467,30 @@ void linkAppication()
 {
   if (server.hasArg("plain"))
   {
-    if (eeprom.DATABASE_NODE)
+    if (eeprom.canAccess)
     {
       Firebase.RTDB.deleteNode(&fbdo, eeprom.DATABASE_NODE);
     }
     deserializeJson(bufferBodyPaserModeAP, server.arg("plain"));
     bufferBodyPaserModeAP.shrinkToFit();
     JsonObject body = bufferBodyPaserModeAP.as<JsonObject>();
-#ifdef _DEBUG_
-    Serial.println("Link App: " + String(body));
-#endif
     bool checkIDUser = body["idUser"].isNull();
     bool checkIDNode = body["idNode"].isNull();
     String idUser = body["idUser"];
     String idNode = body["idNode"];
+#ifdef _DEBUG_
+    Serial.println("Link App: idUser = " + idUser + " - idNode = " + idNode);
+#endif
     if (!checkIDUser && !checkIDNode)
     {
-      eeprom.saveNodeID(idNode);
-      eeprom.saveUserID(idUser);
-      server.send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
-      miruFirebaseCheck.restart();
+      bool stateSaveNodeId = eeprom.saveNodeID(idNode);
+      bool stateSaveUserId = eeprom.saveUserID(idUser);
+      if(stateSaveNodeId && stateSaveUserId) {
+        miruFirebaseCheck.restart();
+        server.send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
+      }else {
+        server.send(500, "application/json", "{\"message\":\"FAILURE SAVE PAYLOADS\"}");
+      }
     }
     else
     {
@@ -549,7 +596,7 @@ void checkConfiguration()
     payload["ssid"] = ssid;
     payload["password"] = password;
     payload["ip-station"] = WiFi.localIP();
-    payload["status-station"] = WiFi.status() == WL_CONNECTED ? true : false;
+    payload["status-station"] = WiFi.status();
     payload["quality-station"] = WiFi.RSSI();
     payload["message"] = "WIFI HAS BEEN CONFIG";
     serializeJson(payload, response_str);
