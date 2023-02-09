@@ -2,7 +2,7 @@ const minify = require('html-minifier').minify;
 const fs = require('fs');
 
 try {
-  const fileName = 'hello';
+  const fileName = 'index';
   let target = fs.readFileSync(`./src/mode/ap/${fileName}.html`);
   target = target.toString('utf-8');
   

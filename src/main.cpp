@@ -9,34 +9,43 @@
 #include "LittleFS.h"
 
 // GLOBAL VARIABLE
-#define PIN_OUT D5
+#define PIN_OUT D2
 #define POOLING_WIFI 5000
 
+#define _DEBUG_
+
+const char *CHost = "plant.io";
 String getMac = WiFi.macAddress();
 String GEN_ID_BY_MAC = String(getMac);
 String ID_DEVICE;
 String TYPE_DEVICE = "LOGIC";
 bool STATUS_PIN = false;
 String DATABASE_URL = "esp8266-device-db-default-rtdb.firebaseio.com";
+uint32_t ramSize;
+float_t flashSize = 80000;
+float_t percent = 100;
 
 // JSON DOCUMENT
 DynamicJsonDocument bufferBodyPaserModeAP(8192);
 DynamicJsonDocument bufferResponseModeAP(8192);
 
 // FUNCTION PROTOTYPE - TASK
-float_t checkRam();
-void poolingCheckWifi();
-void setupWifiModeAP();
+void checkRam();
+void checkRequestComing();
 void firebaseFollowData();
 void checkFirebaseInit();
-void checkWifiConnection();
 void setupWifiModeStation();
 void setupWebserverModeAP();
-void setupWebserverModeStation();
 
 // FUNCTION PROTOTYPE - COMPONENT
+void scanListNetwork();
 void setUpPinMode();
 void maybeSwitchMode();
+void checkLinkAppication();
+void linkAppication();
+void addConfiguration();
+void resetConfiguration();
+void checkConfiguration();
 
 class EepromMiru
 {
@@ -206,28 +215,27 @@ private:
 
 // => EEPROM
 EepromMiru eeprom(200);
+
 // => SERVER
-ESP8266WebServer server_mode_ap(80);
-ESP8266WebServer server_mode_station(80);
+ESP8266WebServer server(80);
+
 // => TASKSHEDULE
 Scheduler runner;
+
 // => FIREBASE
 FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
 
 // TASK
-Task miruSetupWifiAPMode(TASK_IMMEDIATE, TASK_ONCE, &setupWifiModeAP, &runner);
-Task miruSetupWebServerAPMode(TASK_IMMEDIATE, TASK_FOREVER, &setupWebserverModeAP, &runner);
-Task miruSetupWifiStationMode(TASK_IMMEDIATE, TASK_ONCE, &setupWifiModeStation, &runner);
-Task miruSetupWebServerStationMode(TASK_IMMEDIATE, TASK_FOREVER, &setupWebserverModeStation, &runner);
-Task miruCheckWifiConnection(TASK_SECOND, TASK_FOREVER, &checkWifiConnection, &runner);
-Task miruFirebaseCheck(TASK_IMMEDIATE, TASK_ONCE, &checkFirebaseInit, &runner);
+Task miruCheckRequestComming(500, TASK_FOREVER, &checkRequestComing, &runner, true);
+Task miruSetupWifiStationMode(200, TASK_ONCE, &setupWifiModeStation, &runner);
+Task miruFirebaseCheck(100, TASK_ONCE, &checkFirebaseInit, &runner);
 Task miruFirebaseFollowData(100, TASK_FOREVER, &firebaseFollowData, &runner);
-Task miruPoolingCheckWifi(POOLING_WIFI, TASK_FOREVER, &poolingCheckWifi, &runner);
+Task mirucheckRam(1000, TASK_FOREVER, &checkRam, &runner, true);
 
 // WIFI MODE - AP
-String mode_ap_ssid = "esp-8266-";
+String mode_ap_ssid = "esp8266-";
 String mode_ap_pass = "44448888";
 String mode_ap_ip = "192.168.1.120";
 String mode_ap_gateway = "192.168.1.1";
@@ -238,11 +246,14 @@ String pathFile = "/";
 
 void setup()
 {
+#ifdef _DEBUG_
   Serial.begin(115200);
-  Serial.println();
+  Serial.println("");
+  Serial.println("[---PROGRAM START---]");
+#endif
+
   LittleFS.begin();
 
-  Serial.println("[RUN]");
   config.database_url = DATABASE_URL;
   config.signer.test_mode = true;
   GEN_ID_BY_MAC.replace(":", "");
@@ -250,8 +261,14 @@ void setup()
   Firebase.begin(&config, &auth);
 
   setUpPinMode();
+  setupWebserverModeAP();
+
+  WiFi.hostname(CHost);
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.persistent(true);
+  WiFi.softAP(String(mode_ap_ssid + GEN_ID_BY_MAC), mode_ap_pass);
+
   runner.startNow();
-  maybeSwitchMode();
 }
 
 void loop()
@@ -271,7 +288,7 @@ void checkFirebaseInit()
 
   // [Check] - NodeID is exist
   FirebaseJson JsonFixNode = node;
-  
+
   if (!node.isMember("state"))
   {
     JsonFixNode.add("state", false);
@@ -286,7 +303,7 @@ void checkFirebaseInit()
   }
   // JsonFixNode.clear();
   Firebase.RTDB.updateNodeAsync(&fbdo, eeprom.DATABASE_NODE + devicePath, &JsonFixNode);
-  
+
   miruFirebaseFollowData.enableIfNot();
 }
 
@@ -305,39 +322,19 @@ void firebaseFollowData()
   }
 }
 
-void poolingCheckWifi()
-{
-  if (WiFi.status() != WL_CONNECTED)
-  {
-    miruCheckWifiConnection.enableIfNot();
-  }
-}
-
 void setupWifiModeStation()
 {
   // ACTIVE MODE AP
   String ssid = eeprom.readSSID();
   String password = eeprom.readPassword();
-  WiFi.begin(ssid, password);
-  miruCheckWifiConnection.enable();
-}
-
-void setupWifiModeAP()
-{
-  // ACTIVE MODE AP
-  WiFi.softAP(String(mode_ap_ssid + GEN_ID_BY_MAC), mode_ap_pass);
-  miruSetupWebServerAPMode.enable();
-}
-
-void checkWifiConnection()
-{
-  // enable check wifi connection
-  if (WiFi.status() == WL_CONNECTED)
+#ifdef _DEBUG_
+  Serial.println("<--- STATION WIFI --->");
+  Serial.println("[SSID] = " + ssid);
+  Serial.println("[PASSWORD] = " + password);
+#endif
+  if (ssid.length() > 0 && password.length() > 0)
   {
-    miruSetupWebServerStationMode.enableIfNot();
-    miruFirebaseCheck.enableIfNot();
-    miruPoolingCheckWifi.enableIfNot();
-    miruCheckWifiConnection.cancel();
+    WiFi.begin(ssid, password);
   }
 }
 
@@ -347,166 +344,207 @@ void setUpPinMode()
   digitalWrite(PIN_OUT, STATUS_PIN ? HIGH : LOW);
 }
 
-void setupWebserverModeStation()
+void checkRequestComing()
 {
-  if (miruSetupWebServerStationMode.isFirstIteration())
-  {
-    // [GET] - ROUTE: '/' => Render UI interface
-    server_mode_station.serveStatic("/", LittleFS, "/index.minify.html");
-    server_mode_station.begin();
-  }
-  server_mode_station.handleClient();
+  server.handleClient();
 }
 
 void setupWebserverModeAP()
 {
-  if (miruSetupWebServerAPMode.isFirstIteration())
+  // [GET] - ROUTE: '/' => Render UI interface
+  server.serveStatic("/", LittleFS, "/index.minify.html");
+  // [GET] - ROUTE: '/reset-config' => Reset config WIFI
+  // server.on("/scan-network", HTTP_GET, scanListNetwork);
+  // [GET] - ROUTE: '/is-config' => Check WIFI is configuration
+  server.on("/is-config", HTTP_GET, checkConfiguration);
+  // [POST] - ROUTE: '/reset-config-wifi' => Reset config WIFI
+  server.on("/reset-config-wifi", HTTP_POST, resetConfiguration);
+  // [POST] - ROUTE: '/config-wifi' => Goto config WIFI save below EEPROM
+  server.on("/config-wifi", HTTP_POST, addConfiguration);
+  // [POST] - ROUTE: '/link-app' => Goto config firebase save below EEPROM
+  server.on("/link-app", HTTP_POST, linkAppication);
+  // [GET] - ROUTE: '/is-link-app' => Check configuration link-app
+  server.on("/is-link-app", HTTP_GET, checkLinkAppication);
+
+  // START WEBSERVER
+  server.begin();
+}
+
+// [********* Func Request *********]
+
+// [POST]
+void linkAppication()
+{
+  if (server.hasArg("plain"))
   {
-    // [GET] - ROUTE: '/' => Render UI interface
-    server_mode_ap.serveStatic("/", LittleFS, "/index.minify.html");
-    // [GET] - ROUTE: '/reset-config' => Reset config WIFI
-    server_mode_ap.on("/scan-network", HTTP_GET, []()
-                      {
-      String responseTemp;
-      int8_t lenNetwork = WiFi.scanNetworks();
-      JsonArray networks = bufferResponseModeAP.createNestedArray("networks");
-      for (size_t i = 0; i < lenNetwork; i++)
+    if (eeprom.DATABASE_NODE)
+    {
+      Firebase.RTDB.deleteNode(&fbdo, eeprom.DATABASE_NODE);
+    }
+    deserializeJson(bufferBodyPaserModeAP, server.arg("plain"));
+    bufferBodyPaserModeAP.shrinkToFit();
+    JsonObject body = bufferBodyPaserModeAP.as<JsonObject>();
+#ifdef _DEBUG_
+    Serial.println("Link App: " + String(body));
+#endif
+    bool checkIDUser = body["idUser"].isNull();
+    bool checkIDNode = body["idNode"].isNull();
+    String idUser = body["idUser"];
+    String idNode = body["idNode"];
+    if (!checkIDUser && !checkIDNode)
+    {
+      eeprom.saveNodeID(idNode);
+      eeprom.saveUserID(idUser);
+      server.send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
+      miruFirebaseCheck.restart();
+    }
+    else
+    {
+      if (checkIDUser)
       {
-        String name = WiFi.SSID(i);
-        int32_t quality = WiFi.RSSI(i);
-        DynamicJsonDocument temp(200);
-        JsonObject network = temp.to<JsonObject>();
-        network["name"] = name;
-        network["quality"] = quality;
-        networks.add(network);
-        temp.clear();
+        server.send(200, "application/json", "{\"message\":\"ID USER IS NULL\"}");
       }
-      serializeJson(bufferResponseModeAP, responseTemp);
-      server_mode_ap.send(200, "application/json", responseTemp);
-      bufferResponseModeAP.clear(); });
-    // [GET] - ROUTE: '/is-config' => Check WIFI is configuration
-    server_mode_ap.on("/is-config", HTTP_GET, []()
-                      {
-      String ssid = eeprom.readSSID();
-      String password = eeprom.readPassword();
-      if(ssid.length() > 0 && password.length() > 0) {
-        String response_str;
-        DynamicJsonDocument response_json(200);
-        JsonObject payload = response_json.to<JsonObject>();
-        payload["ssid"] = ssid;
-        payload["password"] = password;
-        payload["ip-station"] = WiFi.localIP();
-        payload["status-station"] = WiFi.status() == WL_CONNECTED ? true : false;
-        payload["quality-station"] = WiFi.RSSI();
-        payload["message"] = "WIFI HAS BEEN CONFIG";
-        serializeJson(payload, response_str);
-        server_mode_ap.send(200, "application/json", response_str);
-        response_json.clear();
-      }else {
-        server_mode_ap.send(200, "application/json", "{\"message\":\"WIFI NOT YET CONFIG\"}");
-      } });
-    // [POST] - ROUTE: '/reset-config-wifi' => Reset config WIFI
-    server_mode_ap.on("/reset-config-wifi", HTTP_POST, []()
-                      {
-      String ssid = eeprom.readSSID();
-      String password = eeprom.readPassword();
-      if(ssid.length() > 0 && password.length() > 0) {
-        eeprom.saveSSID("");
-        eeprom.savePassword("");
+      else
+      {
+        server.send(200, "application/json", "{\"message\":\"ID NODE IS NULL\"}");
       }
-      server_mode_ap.send(200, "application/json", "{\"message\":\"RESET CONFIG SUCCESSFULLY\"}");
-      WiFi.disconnect(); });
-    // [POST] - ROUTE: '/config-wifi' => Goto config WIFI save below EEPROM
-    server_mode_ap.on("/config-wifi", HTTP_POST, []()
-                      {
-      if(server_mode_ap.hasArg("plain")) {
-        deserializeJson(bufferBodyPaserModeAP, server_mode_ap.arg("plain"));
-        bufferBodyPaserModeAP.shrinkToFit();
-        JsonObject body = bufferBodyPaserModeAP.as<JsonObject>();
-        String ssid = body["ssid"];
-        String password = body["password"];
-        eeprom.saveSSID(ssid);
-        eeprom.savePassword(password);
-        // Serial.println("[Save config EEPROM]");
-        server_mode_ap.send(200, "application/json", "{\"message\":\"CONFIGURATION WIFI SUCCESSFULLY\"}");
-        WiFi.begin(ssid, password);
-      }else {
-        server_mode_ap.send(403, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
-      }
-      bufferBodyPaserModeAP.clear(); });
-    // [POST] - ROUTE: '/link-app' => Goto config firebase save below EEPROM
-    server_mode_ap.on("/link-app", HTTP_POST, []()
-                      {
-      if(server_mode_ap.hasArg("plain")) {
-        if(eeprom.DATABASE_NODE) {
-          Firebase.RTDB.deleteNode(&fbdo, eeprom.DATABASE_NODE);
-        }
-        deserializeJson(bufferBodyPaserModeAP, server_mode_ap.arg("plain"));
-        bufferBodyPaserModeAP.shrinkToFit();
-        JsonObject body = bufferBodyPaserModeAP.as<JsonObject>();
-        bool checkIDUser = body["idUser"].isNull();
-        bool checkIDNode = body["idNode"].isNull();
-        String idUser = body["idUser"];
-        String idNode = body["idNode"];
-        if(!checkIDUser && !checkIDNode) {
-          eeprom.saveNodeID(idNode);
-          eeprom.saveUserID(idUser);
-          server_mode_ap.send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
-          miruFirebaseCheck.restart();
-        }else {
-          if(checkIDUser) {
-            server_mode_ap.send(200, "application/json", "{\"message\":\"ID USER IS NULL\"}");
-          }else {
-            server_mode_ap.send(200, "application/json", "{\"message\":\"ID NODE IS NULL\"}");
-          }
-        }
-      }else {
-        server_mode_ap.send(403, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
-      }
-      bufferBodyPaserModeAP.clear(); });
-    // [GET] - ROUTE: '/is-link-app' => Check configuration link-app
-    server_mode_ap.on("/is-link-app", HTTP_GET, []()
-                      {
-      String nodeID = eeprom.readNodeID();
-      String userID = eeprom.readUserID();
-      if(nodeID.length() && userID.length()) {
-        String response_str;
-        DynamicJsonDocument response_json(200);
-        JsonObject payload = response_json.to<JsonObject>();
-        payload["nodeID"] = nodeID;
-        payload["userID"] = userID;
-        payload["message"] = "CONFIG IS FOUND";
-        serializeJson(payload, response_str);
-        server_mode_ap.send(200, "application/json", response_str);
-        response_json.clear();
-      }else {
-        server_mode_ap.send(403, "application/json", "{\"message\":\"CONFIG NOT FOUND\"}");
-      } });
-
-    // START WEBSERVER
-    server_mode_ap.begin();
+    }
   }
-  server_mode_ap.handleClient();
+  else
+  {
+    server.send(403, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
+  }
+  bufferBodyPaserModeAP.clear();
 }
 
-void turnOffModeAP()
+// [POST]
+void addConfiguration()
 {
-  server_mode_ap.close();
-  miruSetupWebServerAPMode.cancel();
-  WiFi.softAPdisconnect(true);
+  if (server.hasArg("plain"))
+  {
+    deserializeJson(bufferBodyPaserModeAP, server.arg("plain"));
+    bufferBodyPaserModeAP.shrinkToFit();
+    JsonObject body = bufferBodyPaserModeAP.as<JsonObject>();
+
+#ifdef _DEBUG_
+    Serial.println("Add config: " + String(body));
+#endif
+    String ssid = body["ssid"];
+    String password = body["password"];
+    eeprom.saveSSID(ssid);
+    eeprom.savePassword(password);
+    // Serial.println("[Save config EEPROM]");
+    server.send(200, "application/json", "{\"message\":\"CONFIGURATION WIFI SUCCESSFULLY\"}");
+    miruSetupWifiStationMode.restart();
+  }
+  else
+  {
+    server.send(403, "application/json", "{\"message\":\"NOT FOUND PAYLOAD\"}");
+  }
+  bufferBodyPaserModeAP.clear();
 }
 
-float_t checkRam()
+// [POST]
+void resetConfiguration()
 {
-  uint32_t ramSize = ESP.getFreeHeap();
-  return ((float_t)ramSize / (float_t)80000) * (float_t)100;
+  String ssid = eeprom.readSSID();
+  String password = eeprom.readPassword();
+#ifdef _DEBUG_
+  Serial.println("reset config: wifi = " + ssid + " - password = " + password);
+#endif
+  if (ssid.length() > 0 && password.length() > 0)
+  {
+    eeprom.saveSSID("");
+    eeprom.savePassword("");
+  }
+  server.send(200, "application/json", "{\"message\":\"RESET CONFIG SUCCESSFULLY\"}");
 }
 
-void maybeSwitchMode()
+// [GET]
+void checkLinkAppication()
 {
-  WiFi.mode(WIFI_AP_STA);
-  // turn on network(mode - STATION)
-  miruSetupWifiStationMode.enable();
-  // turn on network(mode - AP)
-  miruSetupWifiAPMode.enable();
+  String nodeID = eeprom.readNodeID();
+  String userID = eeprom.readUserID();
+#ifdef _DEBUG_
+  Serial.println("check link app: nodeID = " + nodeID + " - userID = " + userID);
+#endif
+  if (nodeID.length() && userID.length())
+  {
+    String response_str;
+    DynamicJsonDocument response_json(200);
+    JsonObject payload = response_json.to<JsonObject>();
+    payload["nodeID"] = nodeID;
+    payload["userID"] = userID;
+    payload["message"] = "CONFIG IS FOUND";
+    serializeJson(payload, response_str);
+    server.send(200, "application/json", response_str);
+    response_json.clear();
+  }
+  else
+  {
+    server.send(403, "application/json", "{\"message\":\"CONFIG NOT FOUND\"}");
+  }
+}
+
+// [GET]
+void checkConfiguration()
+{
+  String ssid = eeprom.readSSID();
+  String password = eeprom.readPassword();
+#ifdef _DEBUG_
+  Serial.println("check config: ssid = " + ssid + " - password = " + password);
+#endif
+  if (ssid.length() > 0 && password.length() > 0)
+  {
+    String response_str;
+    DynamicJsonDocument response_json(200);
+    JsonObject payload = response_json.to<JsonObject>();
+    payload["ssid"] = ssid;
+    payload["password"] = password;
+    payload["ip-station"] = WiFi.localIP();
+    payload["status-station"] = WiFi.status() == WL_CONNECTED ? true : false;
+    payload["quality-station"] = WiFi.RSSI();
+    payload["message"] = "WIFI HAS BEEN CONFIG";
+    serializeJson(payload, response_str);
+    server.send(200, "application/json", response_str);
+    response_json.clear();
+  }
+  else
+  {
+    server.send(200, "application/json", "{\"message\":\"WIFI NOT YET CONFIG\"}");
+  }
+}
+
+// [GET]
+void scanListNetwork()
+{
+  String responseTemp;
+  int8_t lenNetwork = WiFi.scanNetworks();
+  JsonArray networks = bufferResponseModeAP.createNestedArray("networks");
+  for (size_t i = 0; i < lenNetwork; i++)
+  {
+    String name = WiFi.SSID(i);
+    int32_t quality = WiFi.RSSI(i);
+    DynamicJsonDocument temp(200);
+    JsonObject network = temp.to<JsonObject>();
+    network["name"] = name;
+    network["quality"] = quality;
+    networks.add(network);
+    temp.clear();
+  }
+  serializeJson(bufferResponseModeAP, responseTemp);
+
+#ifdef _DEBUG_
+  Serial.println("list Wifi: " + responseTemp);
+#endif
+  server.send(200, "application/json", responseTemp);
+  bufferResponseModeAP.clear();
+}
+
+void checkRam()
+{
+  ramSize = ESP.getFreeHeap();
+#ifdef _DEBUG_
+  Serial.println(String(((float_t)ramSize / flashSize * percent)) + " (kb)");
+#endif
 }
