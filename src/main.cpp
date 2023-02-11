@@ -325,7 +325,7 @@ void setup()
   WiFi.hostname(CHost);
   WiFi.mode(WIFI_AP_STA);
   WiFi.persistent(true);
-  WiFi.softAP(String(mode_ap_ssid + GEN_ID_BY_MAC), mode_ap_pass);
+  WiFi.softAP(String(mode_ap_ssid + GEN_ID_BY_MAC), mode_ap_pass, 1, false, 1);
 
   runner.startNow();
 }
@@ -364,19 +364,28 @@ void checkFirebaseInit()
   if (eeprom.canAccess)
   {
     String pathDevice = String(eeprom.DATABASE_NODE + "/devices");
-    FirebaseJson json;
+    Firebase.RTDB.getJSON(&fbdo, pathDevice);
+    if (fbdo.dataTypeEnum() != fb_esp_rtdb_data_type_json)
+    {
+      FirebaseJson json;
 
-    json.set("device-1/state", false);
-    json.set("device-1/type", TYPE_DEVICE);
+      json.set("device-1/state", false);
+      json.set("device-1/type", TYPE_DEVICE);
 
-    json.set("device-2/state", false);
-    json.set("device-2/type", TYPE_DEVICE);
+      json.set("device-2/state", false);
+      json.set("device-2/type", TYPE_DEVICE);
 
-    json.set("device-3/state", false);
-    json.set("device-3/type", TYPE_DEVICE);
+      json.set("device-3/state", false);
+      json.set("device-3/type", TYPE_DEVICE);
 
-    Firebase.RTDB.updateNodeAsync(&fbdo, pathDevice, &json);
-    json.clear();
+      Firebase.RTDB.updateNodeAsync(&fbdo, pathDevice, &json);
+      json.clear();
+
+#ifdef _DEBUG_
+      Serial.println("[CREATED] - NEW LIST DEVICE");
+#endif
+    }
+    fbdo.clear();
   }
   miruFirebaseFollowData.restart();
 }
@@ -399,15 +408,25 @@ void firebaseFollowData()
 
 void checkWifi()
 {
+  wl_status_t status = WiFi.status();
 #ifdef _DEBUG_
   Serial.println(String("Interation Firebase Check = " + String(miruFirebaseCheck.getIterations())));
+  Serial.println(String("WiFi Mode = " + String(WiFi.getMode())));
+  Serial.println(String("WiFi Status = " + String(status)));
 #endif
-  if (WiFi.status() == WL_CONNECTED)
+  if (status == WL_CONNECTED)
   {
     miruFirebaseCheck.enable();
-  }else if(WiFi.status() == WL_DISCONNECTED) {
+  }
+  else if (status == WL_DISCONNECTED)
+  {
     miruFirebaseCheck.setIterations(TASK_ONCE);
   }
+  if (status == WL_CONNECT_FAILED || status == WL_WRONG_PASSWORD || status == WL_NO_SSID_AVAIL)
+  {
+    WiFi.disconnect(true);
+  }
+  WiFi.softAP(String(mode_ap_ssid + GEN_ID_BY_MAC), mode_ap_pass, 1, false, 1);
 }
 
 void setupWifiModeStation()
@@ -422,9 +441,11 @@ void setupWifiModeStation()
 #endif
   if (ssid.length() > 0 && password.length() > 0)
   {
+    if (WiFi.isConnected())
+    {
+      WiFi.disconnect(true);
+    }
     WiFi.begin(ssid, password);
-    WiFi.setAutoConnect(true);
-    WiFi.setAutoConnect(true);
   }
 }
 
@@ -442,7 +463,7 @@ void checkRequestComing()
 void setupWebserverModeAP()
 {
   // [GET] - ROUTE: '/' => Render UI interface
-  server.serveStatic("/", LittleFS, "/index.minify.html");
+  // server.serveStatic("/", LittleFS, "/index.minify.html");
   // [GET] - ROUTE: '/reset-config' => Reset config WIFI
   // server.on("/scan-network", HTTP_GET, scanListNetwork);
   // [GET] - ROUTE: '/is-config' => Check WIFI is configuration
@@ -485,10 +506,13 @@ void linkAppication()
     {
       bool stateSaveNodeId = eeprom.saveNodeID(idNode);
       bool stateSaveUserId = eeprom.saveUserID(idUser);
-      if(stateSaveNodeId && stateSaveUserId) {
+      if (stateSaveNodeId && stateSaveUserId)
+      {
         miruFirebaseCheck.restart();
         server.send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
-      }else {
+      }
+      else
+      {
         server.send(500, "application/json", "{\"message\":\"FAILURE SAVE PAYLOADS\"}");
       }
     }
