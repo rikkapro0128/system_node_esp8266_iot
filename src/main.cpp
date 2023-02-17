@@ -2,17 +2,20 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ArduinoJson.h>
-#include <TaskScheduler.h>
 #include <ESP8266WebServer.h>
 #include <addons/RTDBHelper.h>
 #include <Firebase_ESP_Client.h>
-#include "LittleFS.h"
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+// #include "LittleFS.h"
 
 // GLOBAL VARIABLE
-#define PIN_OUT 3 
+#define PIN_OUT 3
 #define POOLING_WIFI 5000
+#define POOLING_TIMESTAMP 5 // second
 
 #define _DEBUG_
+#define _RELEASE_
 
 const char *CHost = "plant.io";
 String getMac = WiFi.macAddress();
@@ -20,6 +23,9 @@ String GEN_ID_BY_MAC = String(getMac);
 String ID_DEVICE;
 String TYPE_DEVICE = "LOGIC";
 String removeAfter;
+String rootNode = "/device-" + GEN_ID_BY_MAC;
+String childPath[3] = {rootNode + "-1/state", rootNode + "-2/state", rootNode + "-3/state"};
+size_t numChild = sizeof(childPath) / sizeof(childPath[0]);
 bool STATUS_PIN = false;
 String DATABASE_URL = "";
 uint32_t ramSize;
@@ -27,7 +33,8 @@ float_t flashSize = 80000;
 float_t percent = 100;
 bool reConnect = false;
 bool restartConfig = false;
-
+unsigned long now;
+unsigned long timeUpdateTimestamp = 0;
 
 // JSON DOCUMENT
 DynamicJsonDocument bufferBodyPaserModeAP(8192);
@@ -35,18 +42,19 @@ DynamicJsonDocument bufferResponseModeAP(8192);
 
 // FUNCTION PROTOTYPE - TASK
 void checkRam();
-void checkWifi();
-void checkRequestComing();
-void firebaseFollowData();
 void checkFirebaseInit();
 void setupWifiModeStation();
 void setupWebserverModeAP();
+void updateTimeStamp();
 
 // FUNCTION PROTOTYPE - COMPONENT
 #ifdef _DEBUG_
 void viewEEPROM();
 #endif
 void scanListNetwork();
+void streamCallback(FirebaseStream stream);
+void streamTimeoutCallback(bool timeout);
+void setupStreamData();
 void setUpPinMode();
 void maybeSwitchMode();
 void checkLinkAppication();
@@ -271,27 +279,21 @@ private:
 
 // [********* INSTANCE *********]
 
+// => Sync Timestamp
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org");
+
 // => EEPROM
 EepromMiru eeprom(400, "esp8266-device-db-default-rtdb.firebaseio.com");
 
 // => SERVER
 ESP8266WebServer server(80);
 
-// => TASKSHEDULE
-Scheduler runner;
-
 // => FIREBASE
+FirebaseData stream;
 FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
-
-// TASK
-Task miruCheckRequestComming(500, TASK_FOREVER, &checkRequestComing, &runner, true);
-Task miruSetupWifiStationMode(200, TASK_ONCE, &setupWifiModeStation, &runner, true);
-Task miruFirebaseCheck(1000, TASK_ONCE, &checkFirebaseInit, &runner);
-Task miruFirebaseFollowData(500, TASK_FOREVER, &firebaseFollowData, &runner);
-Task mirucheckRam(1000, TASK_FOREVER, &checkRam, &runner, true);
-Task miruPoolingWiFi(2000, TASK_FOREVER, &checkWifi, &runner, true);
 
 // WIFI MODE - AP
 String mode_ap_ssid = "esp8266-";
@@ -305,23 +307,27 @@ String pathFile = "/";
 
 void setup()
 {
-#ifdef _DEBUG_
+
+#ifdef _RELEASE_
   Serial.begin(115200);
+#elif _DEBUG_
+  Serial.begin(115200);
+#endif
+
+#ifdef _DEBUG_
   Serial.println("");
   Serial.println("[---PROGRAM START---]");
 #endif
 
-  LittleFS.begin();
+  // LittleFS.begin();
 
   eeprom.begin();
+  timeClient.begin();
 #ifdef _DEBUG_
   viewEEPROM();
 #endif
-  config.database_url = eeprom.databaseUrl;
-  config.signer.test_mode = true;
   GEN_ID_BY_MAC.replace(":", "");
   ID_DEVICE = String("device-" + GEN_ID_BY_MAC);
-  Firebase.begin(&config, &auth);
 
   setUpPinMode();
   setupWebserverModeAP();
@@ -330,14 +336,30 @@ void setup()
   WiFi.mode(WIFI_AP_STA);
   WiFi.persistent(true);
   WiFi.softAP(String(mode_ap_ssid + GEN_ID_BY_MAC), mode_ap_pass, 1, false, 1);
+  setupWifiModeStation();
 
-  runner.startNow();
+  config.database_url = eeprom.databaseUrl;
+  config.signer.test_mode = true;
+  Firebase.begin(&config, &auth);
+#if defined(ESP8266)
+  stream.setBSSLBufferSize(2048 /* Rx in bytes, 512 - 16384 */, 512 /* Tx in bytes, 512 - 16384 */);
+#endif
+  setupStreamData();
 }
 
 void loop()
 {
-  // put your main code here, to run repeatedly:
-  runner.execute();
+  // Firebase.ready();
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    if ((millis() - timeUpdateTimestamp > 5000 || timeUpdateTimestamp == 0))
+    {
+      updateTimeStamp();
+      checkRam();
+      timeUpdateTimestamp = millis();
+    }
+    server.handleClient();
+  }
 }
 
 #ifdef _DEBUG_
@@ -360,6 +382,52 @@ void viewEEPROM()
   Serial.println("WIFI USER ID = " + userID + " | length = " + String(userID.length()));
 }
 #endif
+
+void setupStreamData()
+{
+  Firebase.RTDB.setStreamCallback(&stream, streamCallback, streamTimeoutCallback);
+#ifdef _DEBUG_
+  Serial.println(String(eeprom.DATABASE_NODE + "/devices"));
+#endif
+  if (!Firebase.RTDB.beginStream(&stream, String(eeprom.DATABASE_NODE + "/devices")))
+  {
+    // Could not begin stream connection, then print out the error detail
+#ifdef _DEBUG_
+    Serial.println(stream.errorReason());
+#endif
+  }
+}
+
+void streamCallback(FirebaseStream stream)
+{
+#ifdef _DEBUG_
+  Serial.println("streamCallback");
+#endif
+}
+
+void streamTimeoutCallback(bool timeout)
+{
+  if (timeout)
+  {
+// Stream timeout occurred
+#ifdef _DEBUG_
+    Serial.println("Firebase stream timeout, resume streaming...");
+#endif
+  }
+}
+
+void updateTimeStamp()
+{
+  timeClient.update();
+  now = timeClient.getEpochTime() - 1;
+#ifdef _DEBUG_
+  Serial.println("Timestamp = " + String(now));
+#endif
+  FirebaseJson json;
+  String pathDevice = String(eeprom.DATABASE_NODE + "/info");
+  json.set("timestamp", now);
+  Firebase.RTDB.updateNodeAsync(&fbdo, pathDevice, &json);
+}
 
 void checkFirebaseInit()
 {
@@ -391,58 +459,7 @@ void checkFirebaseInit()
       Serial.println("[CREATED] - NEW LIST DEVICE");
 #endif
     }
-    miruFirebaseFollowData.enableIfNot();
   }
-}
-
-void firebaseFollowData()
-{
-  wl_status_t status = WiFi.status();
-  if (eeprom.canAccess && status == WL_CONNECTED)
-  {
-    String pathValue = String(eeprom.DATABASE_NODE + "/devices");
-    Firebase.RTDB.getJSON(&fbdo, pathValue);
-#ifdef _DEBUG_
-    Serial.println(String("Data Type = " + String(fbdo.dataTypeEnum())));
-#endif
-    if (fbdo.dataTypeEnum() == fb_esp_rtdb_data_type_json)
-    {
-#ifdef _DEBUG_
-      Serial.println(fbdo.jsonString());
-#endif
-    }else if(fbdo.dataTypeEnum() == fb_esp_rtdb_data_type_null) {
-      miruFirebaseCheck.restart();
-    }
-    fbdo.clear();
-  }
-}
-
-void checkWifi()
-{
-  wl_status_t status = WiFi.status();
-#ifdef _DEBUG_
-  Serial.println(String("WiFi Mode = " + String(WiFi.getMode())));
-  Serial.println(String("WiFi Status = " + String(status)));
-  Serial.println(String("Re Connect = " + String(reConnect)));
-#endif
-  if (status == WL_CONNECTED)
-  {
-    if (reConnect == true)
-    {
-      reConnect = false;
-      miruFirebaseCheck.restartDelayed();
-    }
-    if (removeAfter.length() > 0)
-    {
-      Firebase.RTDB.deleteNode(&fbdo, removeAfter);
-      removeAfter = "";
-    }
-  }
-  if(restartConfig) {
-    restartConfig = false;
-    miruSetupWifiStationMode.restart();
-  }
-  WiFi.softAP(String(mode_ap_ssid + GEN_ID_BY_MAC), mode_ap_pass, 1, false, 1);
 }
 
 void setupWifiModeStation()
@@ -457,12 +474,15 @@ void setupWifiModeStation()
 #endif
   if (ssid.length() > 0 && password.length() > 0)
   {
-    if (WiFi.isConnected())
-    {
-      WiFi.disconnect(true);
-    }
     WiFi.begin(ssid, password);
-    reConnect = true;
+    while (WiFi.status() != WL_CONNECTED)
+    {
+/* code */
+#ifdef _DEBUG_
+      Serial.println(String("Connect to WiFi: " + ssid));
+#endif
+      delay(500);
+    }
   }
 }
 
@@ -470,11 +490,6 @@ void setUpPinMode()
 {
   pinMode(PIN_OUT, OUTPUT);
   digitalWrite(PIN_OUT, STATUS_PIN ? HIGH : LOW);
-}
-
-void checkRequestComing()
-{
-  server.handleClient();
 }
 
 void setupWebserverModeAP()
