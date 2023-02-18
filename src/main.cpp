@@ -5,17 +5,14 @@
 #include <ESP8266WebServer.h>
 #include <addons/RTDBHelper.h>
 #include <Firebase_ESP_Client.h>
-#include <NTPClient.h>
 #include <WiFiUdp.h>
-// #include "LittleFS.h"
+#include <NTPClient.h>
 
 // GLOBAL VARIABLE
 #define PIN_OUT 3
 #define POOLING_WIFI 5000
-#define POOLING_TIMESTAMP 5 // second
 
 #define _DEBUG_
-#define _RELEASE_
 
 const char *CHost = "plant.io";
 String getMac = WiFi.macAddress();
@@ -23,45 +20,44 @@ String GEN_ID_BY_MAC = String(getMac);
 String ID_DEVICE;
 String TYPE_DEVICE = "LOGIC";
 String removeAfter;
-String rootNode = "/device-" + GEN_ID_BY_MAC;
-String childPath[3] = {rootNode + "-1/state", rootNode + "-2/state", rootNode + "-3/state"};
-size_t numChild = sizeof(childPath) / sizeof(childPath[0]);
 bool STATUS_PIN = false;
 String DATABASE_URL = "";
 uint32_t ramSize;
 float_t flashSize = 80000;
 float_t percent = 100;
 bool reConnect = false;
+bool reLinkApp = false;
+bool isStream = false;
 bool restartConfig = false;
-unsigned long now;
-unsigned long timeUpdateTimestamp = 0;
+size_t indexTimer = 0;
+unsigned long timerStack[30][3];
+unsigned long epochTime;
+FirebaseJson jsonNewDevice;
+FirebaseJson timerParseArray;
+FirebaseJsonData timerJson;
 
 // JSON DOCUMENT
 DynamicJsonDocument bufferBodyPaserModeAP(8192);
-DynamicJsonDocument bufferResponseModeAP(8192);
+DynamicJsonDocument FirebaseDataBuffer(8192);
 
-// FUNCTION PROTOTYPE - TASK
+// FUNCTION PROTOTYPE - COMPONENT
+void setupStreamFirebase();
 void checkRam();
 void checkFirebaseInit();
 void setupWifiModeStation();
 void setupWebserverModeAP();
-void updateTimeStamp();
-
-// FUNCTION PROTOTYPE - COMPONENT
 #ifdef _DEBUG_
 void viewEEPROM();
 #endif
-void scanListNetwork();
-void streamCallback(FirebaseStream stream);
-void streamTimeoutCallback(bool timeout);
-void setupStreamData();
-void setUpPinMode();
-void maybeSwitchMode();
+void updateTimestamp();
 void checkLinkAppication();
 void linkAppication();
 void addConfiguration();
 void resetConfiguration();
 void checkConfiguration();
+void parserTimerJson(FirebaseStream &data, uint8_t numberDevice);
+void streamCallback(FirebaseStream data);
+void streamTimeoutCallback(bool timeout);
 
 class EepromMiru
 {
@@ -164,7 +160,7 @@ public:
   }
 
 private:
-  int size = 1024;
+  unsigned int size = 1024;
   String ssid = "";
   int addr_ssid = 0;
   String password = "";
@@ -279,18 +275,17 @@ private:
 
 // [********* INSTANCE *********]
 
-// => Sync Timestamp
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org");
-
 // => EEPROM
 EepromMiru eeprom(400, "esp8266-device-db-default-rtdb.firebaseio.com");
 
 // => SERVER
 ESP8266WebServer server(80);
 
+// => Define NTP Client to get time
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org");
+
 // => FIREBASE
-FirebaseData stream;
 FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
@@ -307,59 +302,61 @@ String pathFile = "/";
 
 void setup()
 {
-
-#ifdef _RELEASE_
-  Serial.begin(115200);
-#elif _DEBUG_
-  Serial.begin(115200);
-#endif
+  GEN_ID_BY_MAC.replace(":", "");
+  ID_DEVICE = String("device-" + GEN_ID_BY_MAC);
 
 #ifdef _DEBUG_
+  Serial.begin(115200);
   Serial.println("");
   Serial.println("[---PROGRAM START---]");
 #endif
 
-  // LittleFS.begin();
-
-  eeprom.begin();
   timeClient.begin();
+  eeprom.begin();
+
 #ifdef _DEBUG_
   viewEEPROM();
 #endif
-  GEN_ID_BY_MAC.replace(":", "");
-  ID_DEVICE = String("device-" + GEN_ID_BY_MAC);
 
-  setUpPinMode();
   setupWebserverModeAP();
 
   WiFi.hostname(CHost);
   WiFi.mode(WIFI_AP_STA);
   WiFi.persistent(true);
   WiFi.softAP(String(mode_ap_ssid + GEN_ID_BY_MAC), mode_ap_pass, 1, false, 1);
+
   setupWifiModeStation();
+
+#ifdef _DEBUG_
+  Serial.println("Connect Wifi");
+#endif
+  while (WiFi.status() != WL_CONNECTED)
+  {
+#ifdef _DEBUG_
+    Serial.print(".");
+#endif
+    delay(500);
+  }
+#ifdef _DEBUG_
+  Serial.println("");
+#endif
 
   config.database_url = eeprom.databaseUrl;
   config.signer.test_mode = true;
   Firebase.begin(&config, &auth);
+
+  Firebase.reconnectWiFi(true);
 #if defined(ESP8266)
-  stream.setBSSLBufferSize(2048 /* Rx in bytes, 512 - 16384 */, 512 /* Tx in bytes, 512 - 16384 */);
+  fbdo.setBSSLBufferSize(2048 /* Rx in bytes, 512 - 16384 */, 512 /* Tx in bytes, 512 - 16384 */);
 #endif
-  setupStreamData();
+  checkFirebaseInit();
+  setupStreamFirebase();
 }
 
 void loop()
 {
-  // Firebase.ready();
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    if ((millis() - timeUpdateTimestamp > 5000 || timeUpdateTimestamp == 0))
-    {
-      updateTimeStamp();
-      checkRam();
-      timeUpdateTimestamp = millis();
-    }
-    server.handleClient();
-  }
+  // put your main code here, to run repeatedly:
+  server.handleClient();
 }
 
 #ifdef _DEBUG_
@@ -383,50 +380,160 @@ void viewEEPROM()
 }
 #endif
 
-void setupStreamData()
+void setupStreamFirebase()
 {
-  Firebase.RTDB.setStreamCallback(&stream, streamCallback, streamTimeoutCallback);
-#ifdef _DEBUG_
-  Serial.println(String(eeprom.DATABASE_NODE + "/devices"));
-#endif
-  if (!Firebase.RTDB.beginStream(&stream, String(eeprom.DATABASE_NODE + "/devices")))
+  Firebase.RTDB.setStreamCallback(&fbdo, streamCallback, streamTimeoutCallback);
+
+  if (!Firebase.RTDB.beginStream(&fbdo, eeprom.DATABASE_NODE + "/devices"))
   {
-    // Could not begin stream connection, then print out the error detail
 #ifdef _DEBUG_
-    Serial.println(stream.errorReason());
+    Serial_Printf("stream begin error, %s\n\n", fbdo.errorReason().c_str());
+#endif
+    isStream = false;
+  }
+  else
+  {
+    isStream = true;
+#ifdef _DEBUG_
+    Serial.println(String("Stream OK!"));
 #endif
   }
 }
 
-void streamCallback(FirebaseStream stream)
+void streamCallback(FirebaseStream data)
 {
 #ifdef _DEBUG_
-  Serial.println("streamCallback");
+  Serial_Printf("sream path, %s\nevent path, %s\ndata type, %s\nevent type, %s\n\n",
+                data.streamPath().c_str(),
+                data.dataPath().c_str(),
+                data.dataType().c_str(),
+                data.eventType().c_str());
+  Serial.println();
+  Serial_Printf("Received stream payload size: %d (Max. %d)\n\n", data.payloadLength(), data.maxPayloadLength());
 #endif
+  String dataPath = data.dataPath();
+  uint8_t dataType = data.dataTypeEnum();
+  if (dataType == d_boolean)
+  {
+    if (dataPath.indexOf("state") > 0) // execute controll turn on device by [INDEX]
+    {
+      uint8_t index = (uint8_t)(dataPath.substring(21, 22).toInt());
+#ifdef _DEBUG_
+      Serial.println("Index = " + String(index));
+      Serial.println("Value = " + String(data.to<boolean>()));
+#endif
+    }
+  }
+  else if (dataType == d_json)
+  {
+    if (dataPath.equals("/"))
+    { // execute init state all device
+#ifdef _DEBUG_
+      Serial.print("Parser Timer All");
+      parserTimerJson(data, 1);
+      parserTimerJson(data, 2);
+      parserTimerJson(data, 3);
+      Serial.println("indexTimer = " + String(indexTimer));
+      for (size_t i = 0; i < indexTimer + 1; i++)
+      {
+        if (i == 0)
+        {
+          Serial.print("[");
+        }
+        for (size_t j = 0; j < 3; j++)
+        {
+          /* code */
+          if (j == 0)
+          {
+            Serial.print("[");
+          }
+          Serial.print(String(timerStack[i][j]));
+          if (j == 2)
+          {
+            Serial.print("]");
+          }
+          else
+          {
+            Serial.print(", ");
+          }
+        }
+        if (i == indexTimer)
+        {
+          Serial.print("]");
+        }
+        /* code */
+      }
+      // Serial.println("[Value 1]");
+      // Serial.println("State 1 = " + String(init[deviceIndex + "-1"]["state"] ? "true" : "false"));
+#endif
+    }
+  }
+}
+
+void parserTimerJson(FirebaseStream &data, uint8_t numberDevice)
+{
+  String deviceField = "device-" + GEN_ID_BY_MAC + "-" + numberDevice;
+  if (data.jsonObject().get(timerJson, deviceField + "/timer"))
+  {
+    timerJson.get<FirebaseJson>(timerParseArray);
+    size_t numTimer = timerParseArray.iteratorBegin();
+    FirebaseJson::IteratorValue timerItem;
+    size_t start = indexTimer != 0 ? indexTimer + 1 : indexTimer;
+    size_t length = (numTimer + start);
+#ifdef _DEBUG_
+    Serial.println("number Json length = " + String(numTimer));
+    Serial.println("start = " + String(start));
+    Serial.println("length = " + String(length));
+#endif
+    for (size_t i = start; i < length; i++)
+    {
+      if (indexTimer < 30)
+      {
+        timerItem = timerParseArray.valueAt(i);
+        if (timerItem.key.equals("unix"))
+        {
+          timerStack[indexTimer][0] = numberDevice;
+          timerStack[indexTimer][1] = timerItem.value.toInt();
+        }
+        else if (timerItem.key.equals("value"))
+        {
+          timerStack[indexTimer][2] = timerItem.value.toInt();
+          if (i != length - 1)
+          {
+            indexTimer++;
+          }
+        }
+        Serial.printf("%d, Type: %s, Name: %s, Value: %s\n", i, timerItem.type == FirebaseJson::JSON_OBJECT ? "object" : "array", timerItem.key.c_str(), timerItem.value.c_str());
+      }else {
+        break;
+      }
+    }
+    timerJson.clear();
+    timerParseArray.iteratorEnd();
+  }
 }
 
 void streamTimeoutCallback(bool timeout)
 {
   if (timeout)
   {
-// Stream timeout occurred
 #ifdef _DEBUG_
-    Serial.println("Firebase stream timeout, resume streaming...");
+    Serial.println("stream timed out, resuming...\n");
+#endif
+  }
+
+  if (!fbdo.httpConnected())
+  {
+#ifdef _DEBUG_
+    Serial_Printf("error code: %d, reason: %s\n\n", fbdo.httpCode(), fbdo.errorReason().c_str());
 #endif
   }
 }
 
-void updateTimeStamp()
+void updateTimestamp()
 {
   timeClient.update();
-  now = timeClient.getEpochTime() - 1;
-#ifdef _DEBUG_
-  Serial.println("Timestamp = " + String(now));
-#endif
-  FirebaseJson json;
-  String pathDevice = String(eeprom.DATABASE_NODE + "/info");
-  json.set("timestamp", now);
-  Firebase.RTDB.updateNodeAsync(&fbdo, pathDevice, &json);
+  epochTime = timeClient.getEpochTime();
 }
 
 void checkFirebaseInit()
@@ -442,18 +549,18 @@ void checkFirebaseInit()
 #endif
     if (!statePath)
     {
-      FirebaseJson json;
+      jsonNewDevice.clear();
 
-      json.set("device-" + GEN_ID_BY_MAC + "-1/state", false);
-      json.set("device-" + GEN_ID_BY_MAC + "-1/type", TYPE_DEVICE);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "-1/state", false);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "-1/type", TYPE_DEVICE);
 
-      json.set("device-" + GEN_ID_BY_MAC + "-2/state", false);
-      json.set("device-" + GEN_ID_BY_MAC + "-2/type", TYPE_DEVICE);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "-2/state", false);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "-2/type", TYPE_DEVICE);
 
-      json.set("device-" + GEN_ID_BY_MAC + "-3/state", false);
-      json.set("device-" + GEN_ID_BY_MAC + "-3/type", TYPE_DEVICE);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "-3/state", false);
+      jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "-3/type", TYPE_DEVICE);
 
-      Firebase.RTDB.updateNodeAsync(&fbdo, pathDevice, &json);
+      Firebase.RTDB.updateNodeAsync(&fbdo, pathDevice, &jsonNewDevice);
 
 #ifdef _DEBUG_
       Serial.println("[CREATED] - NEW LIST DEVICE");
@@ -474,22 +581,15 @@ void setupWifiModeStation()
 #endif
   if (ssid.length() > 0 && password.length() > 0)
   {
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED)
+    if (WiFi.isConnected())
     {
-/* code */
-#ifdef _DEBUG_
-      Serial.println(String("Connect to WiFi: " + ssid));
-#endif
-      delay(500);
+      WiFi.disconnect(true);
     }
+    WiFi.begin(ssid, password);
+    WiFi.setAutoConnect(true);
+    WiFi.setAutoReconnect(true);
+    // reConnect = true;
   }
-}
-
-void setUpPinMode()
-{
-  pinMode(PIN_OUT, OUTPUT);
-  digitalWrite(PIN_OUT, STATUS_PIN ? HIGH : LOW);
 }
 
 void setupWebserverModeAP()
@@ -546,6 +646,7 @@ void linkAppication()
       bool stateSaveUserId = eeprom.saveUserID(idUser);
       if (stateSaveNodeId && stateSaveUserId)
       {
+        reLinkApp = true;
         server.send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
       }
       else
