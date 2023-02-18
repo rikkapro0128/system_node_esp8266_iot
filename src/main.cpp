@@ -13,6 +13,7 @@
 #define POOLING_WIFI 5000
 
 #define _DEBUG_
+#define _RELEASE_
 
 const char *CHost = "plant.io";
 String getMac = WiFi.macAddress();
@@ -29,12 +30,13 @@ bool reConnect = false;
 bool reLinkApp = false;
 bool isStream = false;
 bool restartConfig = false;
-size_t indexTimer = 0;
+size_t numTimer = 0;
 unsigned long timerStack[30][3];
 unsigned long epochTime;
 FirebaseJson jsonNewDevice;
 FirebaseJson timerParseArray;
 FirebaseJsonData timerJson;
+FirebaseJsonData deviceJson;
 
 // JSON DOCUMENT
 DynamicJsonDocument bufferBodyPaserModeAP(8192);
@@ -55,9 +57,15 @@ void linkAppication();
 void addConfiguration();
 void resetConfiguration();
 void checkConfiguration();
-void parserTimerJson(FirebaseStream &data, uint8_t numberDevice);
+#ifdef _DEBUG_
+void PrintListTimer();
+#endif
+void parserTimerJson(FirebaseStream &data, uint8_t numberDevice, bool isInit = true);
+void parserDeviceStatus(FirebaseStream &data, uint8_t numberDevice);
 void streamCallback(FirebaseStream data);
 void streamTimeoutCallback(bool timeout);
+void controllDevice(uint8_t numDevice, bool state);
+void readTimer(FirebaseJson &fbJson, uint8_t numberDevice);
 
 class EepromMiru
 {
@@ -307,6 +315,12 @@ void setup()
 
 #ifdef _DEBUG_
   Serial.begin(115200);
+#endif
+#ifdef _RELEASE_
+  Serial.begin(115200);
+#endif
+
+#ifdef _DEBUG_
   Serial.println("");
   Serial.println("[---PROGRAM START---]");
 #endif
@@ -413,15 +427,15 @@ void streamCallback(FirebaseStream data)
 #endif
   String dataPath = data.dataPath();
   uint8_t dataType = data.dataTypeEnum();
+  uint8_t numDevice = (uint8_t)(dataPath.substring(21, 22).toInt());
   if (dataType == d_boolean)
   {
-    if (dataPath.indexOf("state") > 0) // execute controll turn on device by [INDEX]
+    if (dataPath.indexOf("state") > 0 || numDevice) // execute controll turn on device by [INDEX]
     {
-      uint8_t index = (uint8_t)(dataPath.substring(21, 22).toInt());
-#ifdef _DEBUG_
-      Serial.println("Index = " + String(index));
-      Serial.println("Value = " + String(data.to<boolean>()));
-#endif
+      if (data.dataTypeEnum() == fb_esp_rtdb_data_type_boolean)
+      {
+        controllDevice(numDevice, data.to<boolean>());
+      }
     }
   }
   else if (dataType == d_json)
@@ -429,88 +443,127 @@ void streamCallback(FirebaseStream data)
     if (dataPath.equals("/"))
     { // execute init state all device
 #ifdef _DEBUG_
-      Serial.print("Parser Timer All");
+      Serial.println("Init Status");
+#endif
       parserTimerJson(data, 1);
       parserTimerJson(data, 2);
       parserTimerJson(data, 3);
-      Serial.println("indexTimer = " + String(indexTimer));
-      for (size_t i = 0; i < indexTimer + 1; i++)
+
+      parserDeviceStatus(data, 1);
+      parserDeviceStatus(data, 2);
+      parserDeviceStatus(data, 3);
+    }
+    else if (dataPath.indexOf("timer") > 0 && numDevice)
+    {
+      if (data.eventType().equals("put"))
       {
-        if (i == 0)
-        {
-          Serial.print("[");
-        }
-        for (size_t j = 0; j < 3; j++)
-        {
-          /* code */
-          if (j == 0)
-          {
-            Serial.print("[");
-          }
-          Serial.print(String(timerStack[i][j]));
-          if (j == 2)
-          {
-            Serial.print("]");
-          }
-          else
-          {
-            Serial.print(", ");
-          }
-        }
-        if (i == indexTimer)
-        {
-          Serial.print("]");
-        }
-        /* code */
-      }
-      // Serial.println("[Value 1]");
-      // Serial.println("State 1 = " + String(init[deviceIndex + "-1"]["state"] ? "true" : "false"));
+#ifdef _DEBUG_
+        Serial.println(data.jsonString());
 #endif
+        parserTimerJson(data, numDevice, false);
+      }
+    }
+    PrintListTimer();
+  }
+}
+
+#ifdef _DEBUG_
+void PrintListTimer()
+{
+  for (size_t i = 0; i < numTimer; i++)
+  {
+    if (i == 0)
+    {
+      Serial.print("[");
+    }
+    for (size_t j = 0; j < 3; j++)
+    {
+      /* code */
+      if (j == 0)
+      {
+        Serial.print("[");
+      }
+      Serial.print(String(timerStack[i][j]));
+      if (j == 2)
+      {
+        Serial.print("]");
+      }
+      else
+      {
+        Serial.print(", ");
+      }
+    }
+    if (i == numTimer - 1)
+    {
+      Serial.print("]");
+    }
+  }
+}
+#endif
+
+void parserDeviceStatus(FirebaseStream &data, uint8_t numberDevice)
+{
+  String deviceField = "device-" + GEN_ID_BY_MAC + "-" + numberDevice;
+  if (data.jsonObject().get(deviceJson, deviceField + "/state"))
+  {
+    if (deviceJson.typeNum == 7) // check is boolean
+    {
+      controllDevice(numberDevice, deviceJson.to<bool>());
     }
   }
 }
 
-void parserTimerJson(FirebaseStream &data, uint8_t numberDevice)
+void controllDevice(uint8_t numDevice, bool state)
+{
+#ifdef _RELEASE_
+  Serial.println("188" + String(state ? 'n' : 'f') + String(numDevice));
+#endif
+}
+
+void parserTimerJson(FirebaseStream &data, uint8_t numberDevice, bool isInit)
 {
   String deviceField = "device-" + GEN_ID_BY_MAC + "-" + numberDevice;
-  if (data.jsonObject().get(timerJson, deviceField + "/timer"))
+  if (isInit)
   {
-    timerJson.get<FirebaseJson>(timerParseArray);
-    size_t numTimer = timerParseArray.iteratorBegin();
-    FirebaseJson::IteratorValue timerItem;
-    size_t start = indexTimer != 0 ? indexTimer + 1 : indexTimer;
-    size_t length = (numTimer + start);
-#ifdef _DEBUG_
-    Serial.println("number Json length = " + String(numTimer));
-    Serial.println("start = " + String(start));
-    Serial.println("length = " + String(length));
-#endif
-    for (size_t i = start; i < length; i++)
+    if (data.jsonObject().get(timerJson, deviceField + "/timer"))
     {
-      if (indexTimer < 30)
+      timerJson.get<FirebaseJson>(timerParseArray);
+      readTimer(timerParseArray, numberDevice);
+      timerJson.clear();
+    }
+  }
+  else
+  {
+    readTimer(data.jsonObject(), numberDevice);
+  }
+}
+
+void readTimer(FirebaseJson &fbJson, uint8_t numberDevice)
+{
+  size_t numTimerPayload = fbJson.iteratorBegin();
+  FirebaseJson::IteratorValue timerItem;
+  for (size_t i = 0; i < numTimerPayload; i++)
+  {
+    if (numTimer < 30)
+    {
+      timerItem = fbJson.valueAt(i);
+      if (timerItem.key.equals("unix"))
       {
-        timerItem = timerParseArray.valueAt(i);
-        if (timerItem.key.equals("unix"))
-        {
-          timerStack[indexTimer][0] = numberDevice;
-          timerStack[indexTimer][1] = timerItem.value.toInt();
-        }
-        else if (timerItem.key.equals("value"))
-        {
-          timerStack[indexTimer][2] = timerItem.value.toInt();
-          if (i != length - 1)
-          {
-            indexTimer++;
-          }
-        }
-        Serial.printf("%d, Type: %s, Name: %s, Value: %s\n", i, timerItem.type == FirebaseJson::JSON_OBJECT ? "object" : "array", timerItem.key.c_str(), timerItem.value.c_str());
-      }else {
-        break;
+        timerStack[numTimer][0] = numberDevice;
+        timerStack[numTimer][1] = timerItem.value.toInt();
+      }
+      else if (timerItem.key.equals("value"))
+      {
+        timerStack[numTimer][2] = timerItem.value.toInt();
+        numTimer++;
       }
     }
-    timerJson.clear();
-    timerParseArray.iteratorEnd();
+    else
+    {
+      break;
+    }
   }
+  fbJson.iteratorEnd();
 }
 
 void streamTimeoutCallback(bool timeout)
@@ -540,7 +593,7 @@ void checkFirebaseInit()
 {
   // [Check] - NodeID is exist
 
-  if (eeprom.canAccess)
+  if (eeprom.canAccess && Firebase.ready())
   {
     String pathDevice = String(eeprom.DATABASE_NODE + "/devices");
     bool statePath = Firebase.RTDB.pathExisted(&fbdo, pathDevice);
