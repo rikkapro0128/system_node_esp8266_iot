@@ -7,9 +7,20 @@
 #include <Firebase_ESP_Client.h>
 #include <WiFiUdp.h>
 #include <NTPClient.h>
+#include "ESP8266TimerInterrupt.h"
+
+// Timer Setup
+// Select a Timer Clock
+#define USING_TIM_DIV1 false  // for shortest and most accurate timer
+#define USING_TIM_DIV16 false // for medium time and medium accurate timer
+#define USING_TIM_DIV256 true // for longest timer but least accurate. Default
+
+#define TIMER_INTERVAL_MS 1000
 
 // GLOBAL VARIABLE
 #define PIN_OUT 3
+#define NUMS_TIMER 30
+#define MAX_NAME_INDEX_FIREBASE 25
 #define POOLING_WIFI 5000
 
 #define _DEBUG_
@@ -31,7 +42,8 @@ bool reLinkApp = false;
 bool isStream = false;
 bool restartConfig = false;
 size_t numTimer = 0;
-unsigned long timerStack[30][3];
+unsigned long timerStack[NUMS_TIMER][3];
+char indexTimerStack[NUMS_TIMER][MAX_NAME_INDEX_FIREBASE];
 unsigned long epochTime;
 FirebaseJson jsonNewDevice;
 FirebaseJson timerParseArray;
@@ -60,12 +72,16 @@ void checkConfiguration();
 #ifdef _DEBUG_
 void PrintListTimer();
 #endif
+void IRAM_ATTR TimerHandler();
 void parserTimerJson(FirebaseStream &data, uint8_t numberDevice, bool isInit = true);
 void parserDeviceStatus(FirebaseStream &data, uint8_t numberDevice);
 void streamCallback(FirebaseStream data);
 void streamTimeoutCallback(bool timeout);
 void controllDevice(uint8_t numDevice, bool state);
-void readTimer(FirebaseJson &fbJson, uint8_t numberDevice);
+void readTimer(FirebaseJson &fbJson, uint8_t numberDevice, String keyAdd = "");
+void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE], String key);
+void sortTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE]);
+void setupTimer(unsigned long stack[][3]);
 
 class EepromMiru
 {
@@ -293,6 +309,9 @@ ESP8266WebServer server(80);
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org");
 
+// Init ESP8266 only and only Timer 1
+ESP8266Timer ITimer;
+
 // => FIREBASE
 FirebaseData fbdo;
 FirebaseAuth auth;
@@ -371,6 +390,7 @@ void loop()
 {
   // put your main code here, to run repeatedly:
   server.handleClient();
+  timeClient.update();
 }
 
 #ifdef _DEBUG_
@@ -417,13 +437,13 @@ void setupStreamFirebase()
 void streamCallback(FirebaseStream data)
 {
 #ifdef _DEBUG_
-  Serial_Printf("sream path, %s\nevent path, %s\ndata type, %s\nevent type, %s\n\n",
-                data.streamPath().c_str(),
-                data.dataPath().c_str(),
-                data.dataType().c_str(),
-                data.eventType().c_str());
-  Serial.println();
-  Serial_Printf("Received stream payload size: %d (Max. %d)\n\n", data.payloadLength(), data.maxPayloadLength());
+  // Serial_Printf("sream path, %s\nevent path, %s\ndata type, %s\nevent type, %s\n\n",
+  //               data.streamPath().c_str(),
+  //               data.dataPath().c_str(),
+  //               data.dataType().c_str(),
+  //               data.eventType().c_str());
+  // Serial.println();
+  // Serial_Printf("Received stream payload size: %d (Max. %d)\n\n", data.payloadLength(), data.maxPayloadLength());
 #endif
   String dataPath = data.dataPath();
   uint8_t dataType = data.dataTypeEnum();
@@ -449,20 +469,25 @@ void streamCallback(FirebaseStream data)
       parserTimerJson(data, 2);
       parserTimerJson(data, 3);
 
+      sortTimer(timerStack, indexTimerStack);
+
       parserDeviceStatus(data, 1);
       parserDeviceStatus(data, 2);
       parserDeviceStatus(data, 3);
+
+      setupTimer(timerStack);
     }
     else if (dataPath.indexOf("timer") > 0 && numDevice)
     {
-      if (data.eventType().equals("put"))
-      {
-#ifdef _DEBUG_
-        Serial.println(data.jsonString());
-#endif
-        parserTimerJson(data, numDevice, false);
-      }
+      parserTimerJson(data, numDevice, false); // add timer to list timer
+      sortTimer(timerStack, indexTimerStack);
+      setupTimer(timerStack);
     }
+    PrintListTimer();
+  }
+  else if (dataType == d_null)
+  {
+    removeTimer(timerStack, indexTimerStack, dataPath.substring(29, 49));
     PrintListTimer();
   }
 }
@@ -470,7 +495,8 @@ void streamCallback(FirebaseStream data)
 #ifdef _DEBUG_
 void PrintListTimer()
 {
-  for (size_t i = 0; i < numTimer; i++)
+  Serial.println("Timer Unix Stack: ");
+  for (size_t i = 0; i < NUMS_TIMER; i++)
   {
     if (i == 0)
     {
@@ -493,13 +519,158 @@ void PrintListTimer()
         Serial.print(", ");
       }
     }
-    if (i == numTimer - 1)
+    if (timerStack[i + 1][0] == NULL && timerStack[i + 1][1] == NULL && timerStack[i + 1][2] == NULL)
     {
       Serial.print("]");
+      break;
+    }
+  }
+  Serial.println("Timer Name Stack: ");
+  for (size_t i = 0; i < NUMS_TIMER; i++)
+  {
+    if (i == 0)
+    {
+      Serial.print("[");
+    }
+    Serial.print(String(indexTimerStack[i]) + (i == numTimer - 1 ? "" : ", "));
+    if (strcmp(indexTimerStack[i + 1], "") == 0)
+    {
+      Serial.print("]");
+      break;
     }
   }
 }
 #endif
+
+void setupTimer(unsigned long stack[][3])
+{
+  epochTime = timeClient.getEpochTime();
+  size_t indexSearch = 0;
+  while (true)
+  {
+    /* code */
+    unsigned long timeExecute = stack[indexSearch][1] > epochTime ? stack[indexSearch][1] - epochTime : 0;
+#ifdef _DEBUG_
+    Serial.println("Callback func after = " + String(timeExecute) + "s");
+#endif
+    if (timeExecute > 0)
+    {
+      ITimer.restartTimer();
+#ifdef _DEBUG_
+      Serial.println("Callback func after = " + String(timeExecute) + "s");
+#endif
+      if (ITimer.attachInterruptInterval(TIMER_INTERVAL_MS * 1000 * timeExecute, TimerHandler))
+      {
+        Serial.println("[Starting] ITimer OK millis = " + String(millis()));
+      }
+      else
+      {
+        Serial.println("Can't set ITimer correctly. Select another freq. or interval");
+      }
+      break;
+    }
+    else
+    {
+      indexSearch++;
+      if(stack[indexSearch][1] == NULL) { break; }
+      continue;
+    }
+  }
+}
+
+void IRAM_ATTR TimerHandler()
+{
+#ifdef _DEBUG_
+  Serial.println("Timer 1 call execute func cb");
+  Serial.println("[Ended] ITimer OK millis = " + String(millis()));
+#endif
+}
+
+void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE], String key)
+{
+  size_t indexFind;
+  bool isFind = false;
+  for (size_t i = 0; i < NUMS_TIMER; i++)
+  {
+    if (isFind)
+    {
+      break;
+    }
+    if (strcmp(stackName[i], key.c_str()) == 0)
+    {
+      indexFind = i;
+      isFind = true;
+      for (size_t j = i; j < NUMS_TIMER; j++)
+      {
+        if (strcmp(stackName[j + 1], "") == 0)
+        {
+          strcpy(stackName[j], "");
+          break;
+        }
+        strcpy(stackName[j], stackName[j + 1]);
+      }
+    }
+  }
+  if (isFind)
+  {
+    for (size_t i = indexFind; i < NUMS_TIMER; i++)
+    {
+      if (stack[i + 1][0] == NULL)
+      {
+        stack[i][0] = NULL;
+        stack[i][1] = NULL;
+        stack[i][2] = NULL;
+        break;
+      }
+      else
+      {
+        stack[i][0] = stack[i + 1][0];
+        stack[i][1] = stack[i + 1][1];
+        stack[i][2] = stack[i + 1][2];
+      }
+    }
+  }
+}
+
+void sortTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE])
+{
+  char tempSortIndex[MAX_NAME_INDEX_FIREBASE] = "";
+  unsigned long tempSort;
+  for (size_t i = 0; i < NUMS_TIMER; i++)
+  {
+    if (stack[i][1] == NULL)
+    {
+      break;
+    }
+    for (size_t j = i + 1; j < NUMS_TIMER; j++)
+    {
+      if (stack[j][1] == NULL)
+      {
+        break;
+      }
+      if (stack[j][1] < stack[i][1])
+      {
+        // assign unix
+        tempSort = stack[i][1];
+        stack[i][1] = stack[j][1];
+        stack[j][1] = tempSort;
+        // assign index device
+        tempSort = stack[i][0];
+        stack[i][0] = stack[j][0];
+        stack[j][0] = tempSort;
+        // assign control device
+        tempSort = stack[i][2];
+        stack[i][2] = stack[j][2];
+        stack[j][2] = tempSort;
+
+        // assign index name firebase
+        strcpy(tempSortIndex, stackName[i]);
+        strcpy(stackName[i], stackName[j]);
+        strcpy(stackName[j], tempSortIndex);
+      }
+    }
+  }
+}
 
 void parserDeviceStatus(FirebaseStream &data, uint8_t numberDevice)
 {
@@ -534,28 +705,45 @@ void parserTimerJson(FirebaseStream &data, uint8_t numberDevice, bool isInit)
   }
   else
   {
-    readTimer(data.jsonObject(), numberDevice);
+    readTimer(data.jsonObject(), numberDevice, data.dataPath().substring(29, 49));
   }
 }
 
-void readTimer(FirebaseJson &fbJson, uint8_t numberDevice)
+void readTimer(FirebaseJson &fbJson, uint8_t numberDevice, String keyAdd)
 {
   size_t numTimerPayload = fbJson.iteratorBegin();
   FirebaseJson::IteratorValue timerItem;
+  size_t indexStart;
+  for (size_t i = 0; i < NUMS_TIMER; i++)
+  {
+    if (timerStack[i][0] == NULL && timerStack[i][1] == NULL && timerStack[i][2] == NULL)
+    {
+      indexStart = i;
+      break;
+    }
+  }
   for (size_t i = 0; i < numTimerPayload; i++)
   {
-    if (numTimer < 30)
+    if (indexStart < 30)
     {
       timerItem = fbJson.valueAt(i);
       if (timerItem.key.equals("unix"))
       {
-        timerStack[numTimer][0] = numberDevice;
-        timerStack[numTimer][1] = timerItem.value.toInt();
+        timerStack[indexStart][0] = numberDevice;
+        timerStack[indexStart][1] = timerItem.value.toInt();
       }
       else if (timerItem.key.equals("value"))
       {
-        timerStack[numTimer][2] = timerItem.value.toInt();
-        numTimer++;
+        timerStack[indexStart][2] = timerItem.value.toInt();
+        if (keyAdd.length() > 0)
+        {
+          strcpy(indexTimerStack[indexStart], keyAdd.c_str());
+        }
+        indexStart++;
+      }
+      else
+      {
+        strcpy(indexTimerStack[indexStart], timerItem.key.c_str());
       }
     }
     else
