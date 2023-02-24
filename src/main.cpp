@@ -8,6 +8,7 @@
 #include <WiFiUdp.h>
 #include <NTPClient.h>
 #include "ESP8266TimerInterrupt.h"
+#include "ESP8266_ISR_Timer.h"
 
 // Timer Setup
 // Select a Timer Clock
@@ -18,6 +19,7 @@
 #define TIMER_INTERVAL_MS 1000
 
 // GLOBAL VARIABLE
+#define ERROR_TIMER 10
 #define PIN_OUT 3
 #define NUMS_TIMER 30
 #define MAX_NAME_INDEX_FIREBASE 25
@@ -41,8 +43,13 @@ bool reConnect = false;
 bool reLinkApp = false;
 bool isStream = false;
 bool restartConfig = false;
+bool timeControll = false;
+bool isFirst = true;
 size_t numTimer = 0;
+int idTimerRuning;
+unsigned long sendDataPrevMillis = 0;
 unsigned long timerStack[NUMS_TIMER][3];
+bool stateDevice[3] = {false, false, false};
 char indexTimerStack[NUMS_TIMER][MAX_NAME_INDEX_FIREBASE];
 unsigned long epochTime;
 FirebaseJson jsonNewDevice;
@@ -51,8 +58,7 @@ FirebaseJsonData timerJson;
 FirebaseJsonData deviceJson;
 
 // JSON DOCUMENT
-DynamicJsonDocument bufferBodyPaserModeAP(8192);
-DynamicJsonDocument FirebaseDataBuffer(8192);
+DynamicJsonDocument bufferBodyPaserModeAP(400);
 
 // FUNCTION PROTOTYPE - COMPONENT
 void setupStreamFirebase();
@@ -69,17 +75,19 @@ void linkAppication();
 void addConfiguration();
 void resetConfiguration();
 void checkConfiguration();
+void removeTimerFirebase(uint8_t index);
 #ifdef _DEBUG_
 void PrintListTimer();
 #endif
+void timerActive();
 void IRAM_ATTR TimerHandler();
 void parserTimerJson(FirebaseStream &data, uint8_t numberDevice, bool isInit = true);
 void parserDeviceStatus(FirebaseStream &data, uint8_t numberDevice);
 void streamCallback(FirebaseStream data);
 void streamTimeoutCallback(bool timeout);
-void controllDevice(uint8_t numDevice, bool state);
+void controllDevice(uint8_t numDevice, bool state, bool syncFirebase = false);
 void readTimer(FirebaseJson &fbJson, uint8_t numberDevice, String keyAdd = "");
-void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE], String key);
+void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE], String key, bool isCallBack = false);
 void sortTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE]);
 void setupTimer(unsigned long stack[][3]);
 
@@ -311,6 +319,7 @@ NTPClient timeClient(ntpUDP, "pool.ntp.org");
 
 // Init ESP8266 only and only Timer 1
 ESP8266Timer ITimer;
+ESP8266_ISR_Timer ISR_Timer;
 
 // => FIREBASE
 FirebaseData fbdo;
@@ -376,21 +385,48 @@ void setup()
 
   config.database_url = eeprom.databaseUrl;
   config.signer.test_mode = true;
-  Firebase.begin(&config, &auth);
-
+  fbdo.setBSSLBufferSize(1024 /* Rx in bytes, 512 - 16384 */, 1024 /* Tx in bytes, 512 - 16384 */);
   Firebase.reconnectWiFi(true);
-#if defined(ESP8266)
-  fbdo.setBSSLBufferSize(2048 /* Rx in bytes, 512 - 16384 */, 512 /* Tx in bytes, 512 - 16384 */);
-#endif
+  Firebase.begin(&config, &auth);
   checkFirebaseInit();
-  setupStreamFirebase();
 }
 
 void loop()
 {
-  // put your main code here, to run repeatedly:
   server.handleClient();
   timeClient.update();
+  if (Firebase.ready() && (millis() - sendDataPrevMillis > 2500 || sendDataPrevMillis == 0))
+  {
+    sendDataPrevMillis = millis();
+    if (timerStack[0][1] != NULL && timeControll)
+    {
+      PrintListTimer();
+      epochTime = timeClient.getEpochTime();
+      bool expire = timerStack[0][1] > epochTime && timerStack[0][1] != NULL ? false : true;
+      if (expire)
+      {
+        unsigned long rangeTimer = epochTime - timerStack[0][1];
+        if (rangeTimer < 4)
+        {
+#ifdef _RELEASE_
+          bool state = timerStack[0][2] == 1 ? true : timerStack[0][2] == 2           ? false
+                                                  : stateDevice[timerStack[0][0] - 1] ? false
+                                                                                      : true;
+          controllDevice(timerStack[0][0], state, true);
+#endif
+        }
+#ifdef _DEBUG_
+        Serial.printf("Controll timer = %d\n", timerStack[0][1]);
+        Serial.printf("[Epoch Time] = %d", rangeTimer);
+#endif
+        removeTimer(timerStack, indexTimerStack, indexTimerStack[0]);
+        if (timerStack[0][1] == NULL)
+        {
+          timeControll = false;
+        }
+      }
+    }
+  }
 }
 
 #ifdef _DEBUG_
@@ -437,13 +473,14 @@ void setupStreamFirebase()
 void streamCallback(FirebaseStream data)
 {
 #ifdef _DEBUG_
-  // Serial_Printf("sream path, %s\nevent path, %s\ndata type, %s\nevent type, %s\n\n",
-  //               data.streamPath().c_str(),
-  //               data.dataPath().c_str(),
-  //               data.dataType().c_str(),
-  //               data.eventType().c_str());
-  // Serial.println();
-  // Serial_Printf("Received stream payload size: %d (Max. %d)\n\n", data.payloadLength(), data.maxPayloadLength());
+  Serial.println(ESP.getFreeHeap());
+  Serial_Printf("sream path, %s\nevent path, %s\ndata type, %s\nevent type, %s\n\n",
+                data.streamPath().c_str(),
+                data.dataPath().c_str(),
+                data.dataType().c_str(),
+                data.eventType().c_str());
+  Serial.println();
+  Serial_Printf("Received stream payload size: %d (Max. %d)\n\n", data.payloadLength(), data.maxPayloadLength());
 #endif
   String dataPath = data.dataPath();
   uint8_t dataType = data.dataTypeEnum();
@@ -454,13 +491,15 @@ void streamCallback(FirebaseStream data)
     {
       if (data.dataTypeEnum() == fb_esp_rtdb_data_type_boolean)
       {
-        controllDevice(numDevice, data.to<boolean>());
+        bool state = data.to<boolean>();
+        controllDevice(numDevice, state);
+        stateDevice[numDevice - 1] = state;
       }
     }
   }
   else if (dataType == d_json)
   {
-    if (dataPath.equals("/"))
+    if (dataPath.equals("/") && isFirst)
     { // execute init state all device
 #ifdef _DEBUG_
       Serial.println("Init Status");
@@ -474,30 +513,39 @@ void streamCallback(FirebaseStream data)
       parserDeviceStatus(data, 1);
       parserDeviceStatus(data, 2);
       parserDeviceStatus(data, 3);
-
-      setupTimer(timerStack);
+      timeControll = true;
+      isFirst = false;
     }
     else if (dataPath.indexOf("timer") > 0 && numDevice)
     {
       parserTimerJson(data, numDevice, false); // add timer to list timer
       sortTimer(timerStack, indexTimerStack);
-      setupTimer(timerStack);
+      timeControll = true;
     }
+#ifdef _DEBUG_
     PrintListTimer();
+#endif
   }
   else if (dataType == d_null)
   {
-    removeTimer(timerStack, indexTimerStack, dataPath.substring(29, 49));
+    removeTimer(timerStack, indexTimerStack, dataPath.substring(29, 49), true);
+#ifdef _DEBUG_
     PrintListTimer();
+#endif
   }
 }
 
 #ifdef _DEBUG_
 void PrintListTimer()
 {
-  Serial.println("Timer Unix Stack: ");
+  Serial.println("\nTimer Unix Stack: ");
   for (size_t i = 0; i < NUMS_TIMER; i++)
   {
+    if (timerStack[i][0] == NULL)
+    {
+      Serial.print("NULL");
+      break;
+    }
     if (i == 0)
     {
       Serial.print("[");
@@ -525,9 +573,14 @@ void PrintListTimer()
       break;
     }
   }
-  Serial.println("Timer Name Stack: ");
+  Serial.println("\nTimer Name Stack: ");
   for (size_t i = 0; i < NUMS_TIMER; i++)
   {
+    if (strcmp(indexTimerStack[i], "") == 0)
+    {
+      Serial.print("NULL");
+      break;
+    }
     if (i == 0)
     {
       Serial.print("[");
@@ -539,57 +592,71 @@ void PrintListTimer()
       break;
     }
   }
+  Serial.println();
 }
 #endif
 
 void setupTimer(unsigned long stack[][3])
 {
   epochTime = timeClient.getEpochTime();
-  size_t indexSearch = 0;
-  while (true)
+  for (size_t i = 0; i < NUMS_TIMER; i++)
   {
-    /* code */
-    unsigned long timeExecute = stack[indexSearch][1] > epochTime ? stack[indexSearch][1] - epochTime : 0;
 #ifdef _DEBUG_
-    Serial.println("Callback func after = " + String(timeExecute) + "s");
+    Serial.printf("[COUNT] = %d", i);
 #endif
-    if (timeExecute > 0)
+    if (stack[i][1] == NULL)
     {
-      ITimer.restartTimer();
-#ifdef _DEBUG_
-      Serial.println("Callback func after = " + String(timeExecute) + "s");
-#endif
-      if (ITimer.attachInterruptInterval(TIMER_INTERVAL_MS * 1000 * timeExecute, TimerHandler))
-      {
-        Serial.println("[Starting] ITimer OK millis = " + String(millis()));
-      }
-      else
-      {
-        Serial.println("Can't set ITimer correctly. Select another freq. or interval");
-      }
       break;
     }
     else
     {
-      indexSearch++;
-      if(stack[indexSearch][1] == NULL) { break; }
-      continue;
+      bool expire = stack[i][1] > epochTime ? false : true;
+#ifdef _DEBUG_
+      Serial.printf("[DELETED STATE] = %d", expire);
+#endif
+      /* code */
+      if (expire)
+      {
+        removeTimer(stack, indexTimerStack, String(indexTimerStack[i]));
+      }
+      if (stack[i + 1][0] == NULL)
+      {
+        break;
+      }
     }
   }
 }
 
-void IRAM_ATTR TimerHandler()
+void timerActive()
 {
 #ifdef _DEBUG_
-  Serial.println("Timer 1 call execute func cb");
-  Serial.println("[Ended] ITimer OK millis = " + String(millis()));
+  Serial.println("[Ended] ITimer millis = " + String(millis()));
+#endif
+  // removeFirstTimerFirebase();
+  String pathRemove = eeprom.DATABASE_NODE + "/devices/" + ID_DEVICE + "-" + String(timerStack[0][0]) + "/timer/" + indexTimerStack[0];
+  String pathControl = eeprom.DATABASE_NODE + "/devices/" + ID_DEVICE + "-" + String(timerStack[0][0]) + "/state";
+
+  Firebase.RTDB.setBool(&fbdo, pathControl, timerStack[0][2] == 1 ? true : false);
+  Firebase.RTDB.deleteNode(&fbdo, pathRemove);
+  removeTimer(timerStack, indexTimerStack, String(indexTimerStack[0]));
+  ISR_Timer.deleteTimer(idTimerRuning);
+  idTimerRuning = 0;
+  setupTimer(timerStack);
+#ifdef _DEBUG_
+  PrintListTimer();
 #endif
 }
 
-void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE], String key)
+void IRAM_ATTR TimerHandler()
+{
+  ISR_Timer.run();
+}
+
+void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREBASE], String key, bool isCallBack)
 {
   size_t indexFind;
   bool isFind = false;
+  unsigned long numDevice;
   for (size_t i = 0; i < NUMS_TIMER; i++)
   {
     if (isFind)
@@ -600,6 +667,7 @@ void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREB
     {
       indexFind = i;
       isFind = true;
+      numDevice = stack[i][0];
       for (size_t j = i; j < NUMS_TIMER; j++)
       {
         if (strcmp(stackName[j + 1], "") == 0)
@@ -628,6 +696,16 @@ void removeTimer(unsigned long stack[][3], char stackName[][MAX_NAME_INDEX_FIREB
         stack[i][1] = stack[i + 1][1];
         stack[i][2] = stack[i + 1][2];
       }
+    }
+    if (!isCallBack)
+    {
+      String pathRemove = eeprom.DATABASE_NODE + "/devices/" + ID_DEVICE + "-" + String(numDevice) + "/timer/" + key;
+      Firebase.RTDB.deleteNode(&fbdo, pathRemove);
+      setupStreamFirebase();
+#ifdef _DEBUG_
+      Serial.println("[DELETED PATH] = " + pathRemove);
+      Serial.printf("[TIME END] = %d", millis());
+#endif
     }
   }
 }
@@ -679,15 +757,23 @@ void parserDeviceStatus(FirebaseStream &data, uint8_t numberDevice)
   {
     if (deviceJson.typeNum == 7) // check is boolean
     {
-      controllDevice(numberDevice, deviceJson.to<bool>());
+      bool state = deviceJson.to<bool>();
+      controllDevice(numberDevice, state);
+      stateDevice[numberDevice - 1] = state;
     }
   }
 }
 
-void controllDevice(uint8_t numDevice, bool state)
+void controllDevice(uint8_t numDevice, bool state, bool syncFirebase)
 {
 #ifdef _RELEASE_
   Serial.println("188" + String(state ? 'n' : 'f') + String(numDevice));
+  if (syncFirebase)
+  {
+    String pathControll = eeprom.DATABASE_NODE + "/devices/" + ID_DEVICE + "-" + String(numDevice) + "/state";
+    Firebase.RTDB.setBoolAsync(&fbdo, pathControll, state);
+    stateDevice[numDevice - 1] = state;
+  }
 #endif
 }
 
@@ -781,11 +867,12 @@ void checkFirebaseInit()
 {
   // [Check] - NodeID is exist
 
-  if (eeprom.canAccess && Firebase.ready())
+  if (eeprom.canAccess)
   {
     String pathDevice = String(eeprom.DATABASE_NODE + "/devices");
     bool statePath = Firebase.RTDB.pathExisted(&fbdo, pathDevice);
 #ifdef _DEBUG_
+    Serial.println(String("PATH Device = " + String(pathDevice)));
     Serial.println(String("State Path = " + String(statePath)));
 #endif
     if (!statePath)
@@ -801,12 +888,13 @@ void checkFirebaseInit()
       jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "-3/state", false);
       jsonNewDevice.set("device-" + GEN_ID_BY_MAC + "-3/type", TYPE_DEVICE);
 
-      Firebase.RTDB.updateNodeAsync(&fbdo, pathDevice, &jsonNewDevice);
+      Firebase.RTDB.setJSON(&fbdo, pathDevice, &jsonNewDevice);
 
 #ifdef _DEBUG_
       Serial.println("[CREATED] - NEW LIST DEVICE");
 #endif
     }
+    setupStreamFirebase();
   }
 }
 
@@ -859,6 +947,7 @@ void setupWebserverModeAP()
 // [POST]
 void linkAppication()
 {
+  DynamicJsonDocument bufferBodyPaserModeAP(400);
   if (server.hasArg("plain"))
   {
     if (eeprom.canAccess)
@@ -888,6 +977,7 @@ void linkAppication()
       if (stateSaveNodeId && stateSaveUserId)
       {
         reLinkApp = true;
+        checkFirebaseInit();
         server.send(200, "application/json", "{\"message\":\"LINK APP HAS BEEN SUCCESSFULLY\"}");
       }
       else
@@ -1014,7 +1104,7 @@ void checkConfiguration()
 void checkRam()
 {
   ramSize = ESP.getFreeHeap();
-#ifdef _DEBUG_
+#if defined(_DEBUG_) || defined(_RELEASE_)
   Serial.println(String(((float_t)ramSize / flashSize * percent)) + " (kb)");
 #endif
 }
